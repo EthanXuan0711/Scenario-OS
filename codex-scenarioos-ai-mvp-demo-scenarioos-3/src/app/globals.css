@@ -1,0 +1,69 @@
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    /* 外壳克制 + 内核科幻：极夜深空蓝紫底色，而非纯黑，托底中央 3D 星系；高亮统一暗铜色 */
+    @apply bg-[#030308] text-zinc-400 antialiased selection:bg-amber-500/30 selection:text-amber-200;
+    /* 正文默认行高 1.6，提升多行阅读体验 */
+    line-height: 1.6;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
+
+  * {
+    scrollbar-color: rgb(113 113 122 / 0.65) rgb(24 24 27 / 0.8);
+    scrollbar-width: thin;
+  }
+
+  /* 定义排版基础层级：拉开字号差距，全部使用纯色而非渐变 */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply text-zinc-50 font-medium tracking-tight;
+  }
+
+  h1 {
+    @apply text-2xl;
+  }
+
+  h2 {
+    @apply text-xl;
+  }
+
+  h3 {
+    @apply text-base;
+  }
+}
+
+@layer utilities {
+  /* 辅助类：用于右侧面板的信息分组，替代嵌套的卡片 */
+  .panel-section {
+    @apply py-5 border-b border-zinc-800/50 last:border-0;
+  }
+
+  /* Obsidian 风格的纯粹 Markdown 文本样式 */
+  .markdown-body {
+    @apply space-y-4 text-sm leading-relaxed text-zinc-300;
+  }
+
+  /* 双链/标签药丸样式：用于路径、置信度等元信息 */
+  .tag-pill {
+    @apply rounded-sm border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 font-mono text-xs text-zinc-400;
+  }
+}

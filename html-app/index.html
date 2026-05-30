@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>ScenarioOS · 个人决策大脑</title>
+<style>
+  :root{
+    --bg:#030308; --bg-main:#040409; --panel:#07070e; --panel-2:#0a0a12;
+    --line:rgba(63,63,70,.6); --line-soft:rgba(39,39,42,.55);
+    --txt:#a1a1aa; --txt-strong:#e4e4e7; --txt-50:#fafafa; --txt-dim:#71717a; --txt-dimmer:#52525b;
+    --amber:#f59e0b; --amber-soft:#fcd34d; --amber-200:#fde68a; --green:#10b981; --red:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{
+    background:var(--bg); color:var(--txt); line-height:1.6;
+    font-family:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px; -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(245,158,11,.3); color:var(--amber-200)}
+  *{scrollbar-width:thin; scrollbar-color:rgba(113,113,122,.6) rgba(24,24,27,.6)}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(113,113,122,.45);border-radius:8px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(113,113,122,.7)}
+  h1,h2,h3,h4{color:var(--txt-50);font-weight:500;letter-spacing:-.01em;margin:0}
+  button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+  input,textarea{font:inherit;color:inherit}
+  a{color:inherit}
+
+  .app{display:flex;height:100vh;height:100dvh;width:100%;overflow:hidden}
+
+  /* ---------- 左栏 Vault ---------- */
+  .vault{width:21rem;min-width:19rem;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line-soft);z-index:20}
+  .vault-head{padding:12px 16px;border-bottom:1px solid var(--line-soft)}
+  .vault-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .vault-title .l{display:flex;align-items:center;gap:8px;color:var(--txt-strong);font-weight:500}
+  .muted{color:var(--txt-dim);font-size:12px}
+  .search{display:flex;align-items:center;gap:8px;border:1px solid #27272a;background:var(--panel-2);padding:8px 12px}
+  .search input{flex:1;min-width:0;background:none;border:none;outline:none;color:var(--txt-strong);font-size:13px}
+  .search input::placeholder{color:var(--txt-dimmer)}
+  .vault-scroll{flex:1;overflow-y:auto;padding:16px 12px}
+  .grp-label{display:flex;align-items:center;gap:8px;padding:0 4px;margin-bottom:8px;font-size:12px;font-weight:500;color:var(--txt-dim)}
+  .moc-btn{display:block;width:100%;text-align:left;border:1px solid #18181b;padding:8px 12px;margin-bottom:8px;transition:.15s}
+  .moc-btn:hover{border-color:#3f3f46}
+  .moc-btn.active{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1)}
+  .moc-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .moc-row .nm{font-size:12px;color:#e4e4e7}
+  .moc-row .sc{font-size:12px;color:var(--amber-200)}
+  .bar{height:4px;background:#18181b;overflow:hidden;margin-top:6px}
+  .bar > i{display:block;height:100%;background:rgba(245,158,11,.75)}
+  .note-btn{display:block;width:100%;text-align:left;padding:8px;transition:.15s;color:var(--txt-dim)}
+  .note-btn:hover{background:rgba(39,39,42,.5);color:#e4e4e7}
+  .note-btn.active{background:#18181b;color:var(--amber-200)}
+  .note-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .note-row .nm{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .note-row .ty{font-size:10px;color:var(--txt-dimmer);flex:none}
+  .tags{display:flex;flex-wrap:wrap;gap:8px}
+  .tag{border:1px solid #18181b;padding:4px 8px;font-size:12px;color:var(--txt-dim);transition:.15s}
+  .tag:hover{border-color:rgba(245,158,11,.4);color:var(--amber-200)}
+  .sec{margin-bottom:20px}
+  .vault-foot{border-top:1px solid var(--line-soft);padding:16px;display:flex;flex-direction:column;gap:12px}
+  .inbox-row{display:flex;gap:8px}
+  .inbox-row input{flex:1;min-width:0;border:1px solid #27272a;background:#18181b;padding:8px 12px;outline:none;color:var(--txt-strong);font-size:13px}
+  .inbox-row input:focus{border-color:rgba(245,158,11,.5)}
+  .inbox-row input::placeholder{color:var(--txt-dimmer)}
+  .icon-btn{display:inline-flex;align-items:center;justify-content:center;background:#f4f4f5;color:#09090b;padding:0 12px;transition:.15s}
+  .icon-btn:hover{background:#fff}
+  .ghost{border:1px solid #27272a;padding:8px;font-size:12px;color:var(--txt-dim);text-align:left;transition:.15s}
+  .ghost:hover{border-color:rgba(245,158,11,.4);color:var(--amber-200)}
+  .ghost.center{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%}
+
+  /* ---------- 中栏 Main ---------- */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-main)}
+  .main-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line-soft);padding:12px 16px}
+  .crumb{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--txt-dim);margin-bottom:4px}
+  .main-title{font-size:18px;color:var(--txt-50);max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .modes{display:flex;gap:8px;overflow-x:auto}
+  .mode-btn{flex:none;border:1px solid #27272a;padding:6px 12px;font-size:12px;color:var(--txt-dim);transition:.15s}
+  .mode-btn:hover{color:#e4e4e7}
+  .mode-btn.active{border-color:rgba(245,158,11,.5);background:rgba(245,158,11,.1);color:var(--amber-200)}
+  .main-body{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--bg)}
+  .stage{position:absolute;inset:0}
+  .stage canvas{display:block}
+  .graph-mount{position:absolute;inset:0;cursor:crosshair}
+  .ov{position:absolute;z-index:10}
+  .pill{display:inline-flex;align-items:center;gap:8px;border:1px solid #27272a;background:rgba(9,9,11,.8);backdrop-filter:blur(8px);padding:6px 12px;border-radius:999px;font-size:12px;color:var(--txt)}
+  .dot{width:6px;height:6px;border-radius:999px;background:var(--amber)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .dot.live{animation:pulse 2s ease-in-out infinite}
+  .info{left:20px;top:20px}
+  .status{right:20px;top:20px;display:grid;gap:8px;text-align:right}
+  .status .pill .v{color:var(--txt-50)}
+  .dossier{left:16px;right:16px;bottom:16px;border:1px solid #27272a;background:rgba(9,9,11,.9);backdrop-filter:blur(8px);padding:16px}
+  .dossier h3{display:inline;font-size:14px;color:#e4e4e7}
+  .dossier .d-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .dossier p{font-size:12px;color:var(--txt);margin:0 0 12px}
+  .pill-tags{display:flex;flex-wrap:wrap;gap:8px}
+  .pill-tag{border:1px solid #27272a;padding:4px 8px;font-size:11px;color:var(--txt-dim)}
+  @media (min-width:1024px){.dossier{right:auto;max-width:34rem}}
+  .overlay{position:absolute;inset:0;z-index:20;overflow-y:auto;background:var(--bg);padding:24px 20px}
+  .overlay[hidden]{display:none}
+  .article{max-width:46rem;margin:0 auto}
+  .md-block{margin-bottom:26px;border-left:1px solid #27272a;padding-left:20px}
+  .md-block h3{font-size:14px;color:#e4e4e7;margin-bottom:12px}
+  .md-block .body{font-size:14px;color:var(--txt)}
+  pre{white-space:pre-wrap;font-size:12px;color:var(--txt-dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0}
+  .linkchip{display:inline-block;border:1px solid #27272a;padding:4px 8px;font-size:12px;color:rgba(253,230,138,.8);margin:0 6px 6px 0;transition:.15s}
+  .linkchip:hover{border-color:rgba(245,158,11,.5)}
+  .card{border:1px solid #27272a;background:var(--panel-2);padding:20px}
+  .grid2{display:grid;gap:16px}
+  @media (min-width:1100px){.grid2.canvas-grid{grid-template-columns:1fr .9fr}}
+  .path-grid{display:grid;gap:12px}
+  @media (min-width:640px){.path-grid{grid-template-columns:1fr 1fr}}
+  .path-card{border:1px solid #18181b;background:#0a0a12;padding:16px;text-align:left;transition:.15s;min-height:9rem}
+  .path-card:hover{border-color:#3f3f46}
+  .path-card.active{border-color:rgba(245,158,11,.6);background:rgba(245,158,11,.1)}
+  .row-between{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .clip3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .detail .k{font-size:12px;color:var(--txt-dimmer);margin-bottom:4px}
+  .detail .v{font-size:14px;color:var(--txt-strong)}
+  .tl{border-left:2px solid #27272a;padding-left:16px;margin-bottom:12px}
+  .tl .t{font-size:12px;color:rgba(253,230,138,.8);margin-bottom:2px}
+  .btn-solid{display:inline-flex;align-items:center;gap:8px;background:#f4f4f5;color:#09090b;font-weight:500;padding:8px 12px;font-size:12px;transition:.15s}
+  .btn-solid:hover{background:#fff}
+  .main-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line-soft);padding:8px 16px;font-size:12px;color:var(--txt-dimmer)}
+
+  /* ---------- 右栏 Aside ---------- */
+  .aside{width:27rem;min-width:23rem;display:flex;flex-direction:column;background:var(--panel);border-left:1px solid var(--line-soft);z-index:20}
+  .tabbar{display:flex;overflow-x:auto;border-bottom:1px solid var(--line-soft);padding:8px 8px 0;font-size:12px;font-weight:500}
+  .tab{flex:none;border-bottom:2px solid transparent;padding:8px 12px;color:var(--txt-dim);transition:.15s}
+  .tab:hover{color:#d4d4d8}
+  .tab.active{border-color:var(--amber);color:var(--txt-50)}
+  .tab-body{flex:1;overflow-y:auto;padding:0 20px}
+  .psec{padding:20px 0;border-bottom:1px solid rgba(39,39,42,.5)}
+  .psec:last-child{border-bottom:none}
+  .psec-h{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .psec-h h3{font-size:16px;color:#e4e4e7}
+  .kv{margin-bottom:12px}
+  .metric{margin:8px 0}
+  .metric .top{display:flex;justify-content:space-between;gap:12px;font-size:12px;margin-bottom:4px}
+  .metric .top .v{color:var(--txt-50);font-weight:500}
+  .bar.round{border-radius:999px}
+  .bar.green > i{background:#047857}
+  .slider{display:block;padding:16px 0;border-bottom:1px solid #18181b}
+  .slider:last-child{border-bottom:none}
+  .slider .lab{display:flex;justify-content:space-between;gap:12px;font-size:12px;margin-bottom:8px}
+  .slider .lab .v{color:var(--txt-50)}
+  .slider input[type=range]{width:100%;accent-color:var(--amber)}
+  .slider .ends{display:flex;justify-content:space-between;font-size:11px;color:var(--txt-dimmer);margin-top:4px}
+  .council-item{border-left:2px solid #27272a;padding-left:16px;margin-bottom:16px}
+  .council-item .stance{font-size:12px;color:rgba(253,230,138,.8);margin:4px 0}
+  .protocol-li{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+  .chk{margin-top:2px;flex:none;width:16px;height:16px;border:1px solid #3f3f46;display:inline-flex;align-items:center;justify-content:center;transition:.15s}
+  .chk.on{border-color:var(--amber);background:var(--amber);color:#09090b}
+  .strike{color:var(--txt-dim);text-decoration:line-through}
+  textarea.backfill{width:100%;min-height:6rem;resize:none;border:1px solid #27272a;background:#18181b;padding:8px 12px;font-size:14px;color:var(--txt-strong);outline:none}
+  textarea.backfill:focus{border-color:rgba(245,158,11,.5)}
+  .lnk-card{display:block;width:100%;text-align:left;border:1px solid #18181b;padding:8px 12px;margin-bottom:12px;transition:.15s}
+  .lnk-card:hover{border-color:#3f3f46}
+  .dashed{border:1px dashed #27272a;padding:12px;text-align:left;width:100%;font-size:12px;color:var(--txt-dim);transition:.15s}
+  .dashed:hover{border-color:rgba(245,158,11,.4);color:var(--amber-200)}
+  .small{font-size:12px}
+  .xs{font-size:11px}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .amber{color:var(--amber)}
+  .fallback{height:100%;overflow-y:auto;background:var(--bg);padding:20px}
+  .fallback .shell-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--txt-dimmer);margin:0 0 8px}
+  .chip{border:1px solid #27272a;padding:6px 12px;border-radius:999px;font-size:12px;color:var(--txt-dim);transition:.15s}
+  .chip:hover{border-color:#52525b;color:#e4e4e7}
+  .chip.active{border-color:var(--amber);background:rgba(245,158,11,.15);color:var(--amber-200)}
+  .chip.hl{border-color:rgba(245,158,11,.5);color:rgba(253,230,138,.8)}
+
+  @media (max-width:1023px){
+    .app{flex-direction:column}
+    .vault{width:100%;min-width:0;height:34vh;border-right:none;border-bottom:1px solid var(--line-soft)}
+    .aside{width:100%;min-width:0;height:40vh;border-left:none;border-top:1px solid var(--line-soft)}
+    .main{flex:1;min-height:42vh}
+    .main-title{max-width:60vw}
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+  <div class="app" id="app">
+    <section class="vault">
+      <div class="vault-head">
+        <div class="vault-title">
+          <span class="l"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-3H5a2 2 0 0 0-2 2z"/></svg>ScenarioOS Vault</span>
+          <span class="muted" id="noteCount"></span>
+        </div>
+        <label class="search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--txt-dim)"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="searchInput" type="text" placeholder="搜索笔记、标签或链接..." autocomplete="off" />
+        </label>
+      </div>
+      <div class="vault-scroll" id="vaultScroll"></div>
+      <form class="vault-foot" id="captureForm">
+        <div class="muted">Inbox / 原子笔记</div>
+        <div class="inbox-row">
+          <input id="captureInput" type="text" placeholder="写入一个事实、担忧或反驳..." autocomplete="off" />
+          <button class="icon-btn" type="submit" aria-label="新建原子笔记"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div class="stack" id="quickReplies"></div>
+        <button type="button" class="ghost center" data-act="regenerate">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+          重算图谱与 MOC
+        </button>
+      </form>
+    </section>
+
+    <main class="main">
+      <header class="main-head" id="mainHead"></header>
+      <div class="main-body">
+        <div class="stage" id="stage">
+          <div class="graph-mount" id="graphMount"></div>
+          <div class="ov info pill" id="graphInfo"><span class="dot live"></span><span id="graphInfoText"></span></div>
+          <div class="ov status" id="graphStatus"></div>
+          <div class="ov dossier" id="graphDossier"></div>
+        </div>
+        <div class="overlay" id="notePanel" hidden></div>
+        <div class="overlay" id="canvasPanel" hidden></div>
+      </div>
+      <footer class="main-foot" id="mainFoot"></footer>
+    </main>
+
+    <aside class="aside">
+      <div class="tabbar" id="tabbar"></div>
+      <div class="tab-body" id="rightBody"></div>
+    </aside>
+  </div>
+
+<script type="module">
+/* ===================== 数据契约（移植自 scenarioOS.ts） ===================== */
+const graphNodes = [
+  { id:"choice", type:"choice", label:"转行 AI", shell:0, weight:96, confidence:"high", explanation:"当前核心抉择。它会同时改写现金流、成长曲线、身份认同和关键关系。" },
+  { id:"self", type:"self", label:"我", shell:0, weight:88, confidence:"high", explanation:"决策者本人。系统只做推演与验证设计，不替你做最终选择。" },
+  { id:"company", type:"organization", label:"现公司", shell:1, weight:68, confidence:"medium", explanation:"稳定收入来源，也是当前成长速度放缓的主要环境。" },
+  { id:"partner", type:"person", label:"合伙人", shell:1, weight:62, confidence:"medium", explanation:"可能提供技术或项目互补，但协作承诺尚未被现实压力测试。" },
+  { id:"family", type:"person", label:"家人", shell:1, weight:58, confidence:"medium", explanation:"偏好稳定，对激进转型的接受度取决于可见的现金流缓冲。" },
+  { id:"mentor", type:"person", label:"行业导师", shell:1, weight:52, confidence:"low", explanation:"外部校准者。当前证据不足，适合通过访谈补齐。" },
+  { id:"cashflow", type:"value", label:"现金流", shell:2, weight:86, confidence:"high", explanation:"决定转型速度的硬约束。储备不足会把高潜力路径变成被迫止损。" },
+  { id:"freedom", type:"value", label:"自由度", shell:2, weight:74, confidence:"medium", explanation:"你对自主选择和工作方式弹性的偏好较强，会抬高创业或独立项目的吸引力。" },
+  { id:"growth", type:"value", label:"成长速度", shell:2, weight:82, confidence:"high", explanation:"当前岗位成长曲线趋缓，是你考虑切换赛道的主驱动力。" },
+  { id:"identity", type:"value", label:"身份一致性", shell:2, weight:65, confidence:"medium", explanation:"这条路是否像你真正想成为的人，比短期标签更重要。" },
+  { id:"risk-cash", type:"risk", label:"现金流断裂", shell:3, weight:80, confidence:"high", explanation:"如果全职转型前没有缓冲，失败会从职业问题扩散成生活压力。" },
+  { id:"risk-window", type:"risk", label:"错过窗口", shell:3, weight:67, confidence:"medium", explanation:"等待太久会降低进入新赛道的相对优势，但这个判断需要用真实机会反馈验证。" },
+  { id:"risk-focus", type:"risk", label:"精力分散", shell:3, weight:72, confidence:"medium", explanation:"兼顾主业与副业时，最常见失败模式不是能力不足，而是上下文切换耗尽。" },
+  { id:"risk-relation", type:"risk", label:"关系张力", shell:3, weight:54, confidence:"low", explanation:"家人、合伙人与现团队的预期管理不足，会把职业选择转化成关系冲突。" },
+  { id:"path-steady", type:"path", label:"稳健路径", shell:4, weight:76, confidence:"high", explanation:"保留主业现金流，用 90 天建立可展示项目和行业反馈。" },
+  { id:"path-bold", type:"path", label:"冒险路径", shell:4, weight:59, confidence:"medium", explanation:"全职转型，把学习、作品集和商业验证压缩到 6 个月内。" },
+  { id:"path-hybrid", type:"path", label:"混合路径", shell:4, weight:84, confidence:"high", explanation:"争取公司内部 AI 项目或 80/20 时间，同时运营个人项目。" },
+  { id:"path-retreat", type:"path", label:"止损路径", shell:4, weight:45, confidence:"low", explanation:"暂缓转型，把当前赛道做到更深，用行业深度替代技术广度。" }
+];
+const graphEdges = [
+  { source:"choice", target:"company", relation:"influences", strength:0.74, explanation:"转型改变现公司中的角色和谈判空间。" },
+  { source:"choice", target:"partner", relation:"supports", strength:0.62, explanation:"合伙人可能支持副业项目验证。" },
+  { source:"choice", target:"family", relation:"constrains", strength:0.58, explanation:"家庭稳定预期会约束激进方案。" },
+  { source:"choice", target:"cashflow", relation:"constrains", strength:0.86, explanation:"现金流决定可承受试错周期。" },
+  { source:"choice", target:"growth", relation:"triggers", strength:0.83, explanation:"转型的核心诱因是成长速度。" },
+  { source:"choice", target:"freedom", relation:"supports", strength:0.74, explanation:"AI 产品化路径更接近自主工作偏好。" },
+  { source:"cashflow", target:"risk-cash", relation:"triggers", strength:0.92, explanation:"现金流储备不足会触发断裂风险。" },
+  { source:"growth", target:"risk-window", relation:"triggers", strength:0.65, explanation:"高成长窗口带来延迟成本。" },
+  { source:"company", target:"path-hybrid", relation:"supports", strength:0.72, explanation:"内部项目可降低转型断裂。" },
+  { source:"partner", target:"risk-relation", relation:"conflicts", strength:0.58, explanation:"合伙关系未校准会产生摩擦。" },
+  { source:"risk-focus", target:"path-steady", relation:"constrains", strength:0.64, explanation:"稳健路径的主要风险是精力分散。" },
+  { source:"mentor", target:"path-hybrid", relation:"validates", strength:0.53, explanation:"导师访谈可验证混合路径可行性。" },
+  { source:"risk-cash", target:"path-bold", relation:"conflicts", strength:0.91, explanation:"现金流断裂是冒险路径的单点故障。" },
+  { source:"risk-window", target:"path-retreat", relation:"conflicts", strength:0.57, explanation:"止损路径可能牺牲窗口期。" },
+  { source:"identity", target:"path-hybrid", relation:"supports", strength:0.69, explanation:"混合路径更容易保留身份连续性。" },
+  { source:"choice", target:"path-steady", relation:"validates", strength:0.7, explanation:"稳健路径是低风险验证策略。" },
+  { source:"choice", target:"path-bold", relation:"validates", strength:0.5, explanation:"冒险路径需要更强现金流证据。" },
+  { source:"choice", target:"path-hybrid", relation:"validates", strength:0.79, explanation:"混合路径同时满足成长和现金流。" },
+  { source:"choice", target:"path-retreat", relation:"validates", strength:0.38, explanation:"止损路径保守，但仍是可比较选项。" }
+];
+const scenarioPaths = [
+  { id:"hybrid", name:"混合路径", tag:"优先验证", coreLogic:"保留主业现金流，同时争取内部 AI 项目或外部最小产品，用现实反馈决定是否加速。", upside:"降低断裂风险，同时保留进入新赛道的速度。", opportunityCost:"短期会承受双线压力，个人时间被压缩。", failureMode:"主业和副业都只做到 60 分，无法形成可展示成果。", validationExperiment:"14 天内完成一个可演示 AI 小工具，并约 3 位目标用户试用。", fitScore:84, riskLevel:"medium", relatedNodeIds:["path-hybrid","company","growth","identity","risk-focus"] },
+  { id:"steady", name:"稳健路径", tag:"低风险", coreLogic:"继续当前岗位 3-6 个月，把 AI 作为副业项目验证，等作品集和收入信号出现再转型。", upside:"现金流稳定，关系压力小，失败可逆。", opportunityCost:"可能错过早期窗口，增长速度不够刺激。", failureMode:"验证周期拖太长，副业始终停留在学习状态。", validationExperiment:"14 天内固定 20 小时学习与产出节奏，交付一个公开 demo。", fitScore:76, riskLevel:"low", relatedNodeIds:["path-steady","cashflow","risk-focus","family"] },
+  { id:"bold", name:"冒险路径", tag:"高波动", coreLogic:"立即转向全职 AI 学习和项目化验证，以高强度换取窗口期速度。", upside:"最快建立新身份，最大化赛道窗口。", opportunityCost:"6-12 个月收入不确定，失败后简历叙事难度上升。", failureMode:"现金流耗尽前没有形成可销售能力，被迫低质量回流。", validationExperiment:"先访谈 5 位已转型者，确认真实门槛、现金流周期和机会入口。", fitScore:59, riskLevel:"high", relatedNodeIds:["path-bold","risk-cash","risk-window","freedom"] },
+  { id:"retreat", name:"止损路径", tag:"保守对照", coreLogic:"暂缓转型，把当前赛道做深，等待更明确的外部机会或内部项目出现。", upside:"保住稳定性，减少情绪化决策。", opportunityCost:"可能持续消耗成长动机，延迟身份切换。", failureMode:"把谨慎包装成理性，半年后仍然没有新证据。", validationExperiment:"列出当前赛道 3 个可增长方向，验证是否还有真实兴奋感。", fitScore:45, riskLevel:"low", relatedNodeIds:["path-retreat","company","risk-window","identity"] }
+];
+const baseVariables = [
+  { id:"risk", name:"风险承受度", lowLabel:"保守", highLabel:"激进", value:46 },
+  { id:"cashflow", name:"现金流权重", lowLabel:"可牺牲", highLabel:"必须稳", value:78 },
+  { id:"freedom", name:"自由度权重", lowLabel:"低优先", highLabel:"高优先", value:72 },
+  { id:"relationship", name:"关系权重", lowLabel:"可后置", highLabel:"强约束", value:58 },
+  { id:"growth", name:"成长速度", lowLabel:"慢变量", highLabel:"快反馈", value:82 },
+  { id:"identity", name:"身份一致性", lowLabel:"可调整", highLabel:"必须像我", value:69 }
+];
+const councilOpinions = [
+  { id:"realist", role:"冷酷现实主义者", stance:"先审现金流，再谈理想。", challenge:"冒险路径的最大漏洞不是能力，而是现金流储备不足。没有 6 个月缓冲，不应把它排第一。", targetPathId:"bold" },
+  { id:"longterm", role:"长期主义者", stance:"看 10 年身份复利。", challenge:"如果你只是追热点，3 年后会再次换赛道。混合路径必须证明它和你的长期身份一致。", targetPathId:"hybrid" },
+  { id:"opportunity", role:"机会成本审计员", stance:"每个选择都在永久放弃别的东西。", challenge:"稳健路径的隐性代价是窗口期和注意力。它看起来安全，但可能把你锁进慢性后悔。", targetPathId:"steady" },
+  { id:"risk", role:"风险专员", stance:"寻找系统性崩盘点。", challenge:"混合路径最容易死于精力分散。必须把每周可投入时间写成硬约束。", targetPathId:"hybrid" },
+  { id:"future", role:"未来自我代理", stance:"从三年后回看今天。", challenge:"三年后的你不一定后悔慢，但会后悔没有用现实实验验证自己的恐惧。", targetPathId:"retreat" }
+];
+const timeline = [
+  { time:"14 天", title:"验证一个关键假设", detail:"用小项目或深度访谈验证 AI 路径是否有真实外部反馈。" },
+  { time:"3 个月", title:"形成第一组证据", detail:"至少有一个可展示项目、一个真实用户反馈和一个行业连接。" },
+  { time:"1 年", title:"选择加速或收缩", detail:"根据收入、能力曲线与身份一致性决定是否全职转型。" },
+  { time:"3 年", title:"身份稳定成型", detail:"你不再只是在学 AI，而是在一个具体问题域里用 AI 产生价值。" }
+];
+const actionProtocol = [
+  { id:"ship", label:"交付一个可演示 AI 小工具", detail:"范围必须小到 14 天内能给真实用户试用。" },
+  { id:"interview", label:"访谈 3 位转型者或目标用户", detail:"记录真实门槛、付费意愿和失败原因。" },
+  { id:"cash", label:"计算 6 个月现金流缓冲", detail:"把固定支出、可削减支出和最低收入线写清楚。" },
+  { id:"backfill", label:"第 14 天回填结果", detail:"标记哪些判断被验证、偏差或推翻，然后重新推演。" }
+];
+const quickReplies = ["我要不要转行做 AI？", "这段合作关系要不要继续？", "要不要离开现在的城市？"];
+
+const nodeTypeLabels = { action:"行动", choice:"抉择", evidence:"证据", organization:"组织", path:"路径", person:"人物", risk:"风险", self:"自我", value:"价值" };
+const confidenceLabels = { high:"高置信", medium:"中置信", low:"低置信" };
+const relationLabels = { conflicts:"冲突", constrains:"约束", influences:"影响", revises:"修正", supports:"支撑", triggers:"触发", validates:"验证" };
+const pathIdByNodeId = { "path-bold":"bold", "path-hybrid":"hybrid", "path-retreat":"retreat", "path-steady":"steady" };
+
+/* ===================== 状态 ===================== */
+const state = {
+  mode:"graph",            // graph | note | canvas
+  rightTab:"backlinks",    // properties | backlinks | variables | protocol | council
+  selectedNodeId:"choice",
+  activePathId:"hybrid",
+  query:"",
+  variables:Object.fromEntries(baseVariables.map(v=>[v.id,v.value])),
+  customNodes:[], customEdges:[],
+  checked:new Set(),
+  committed:false,
+  round:1,
+  backfill:"",
+  lastAction:"图谱已载入，选择任意节点查看反链。"
+};
+
+/* ===================== 计算 ===================== */
+const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,v));
+const allNodes=()=>[...graphNodes,...state.customNodes];
+const allEdges=()=>[...graphEdges,...state.customEdges];
+function scorePath(p,v){
+  const d={
+    hybrid:(v.growth-50)*0.12+(v.identity-50)*0.1+(v.cashflow-50)*0.08-(v.risk-50)*0.03-(v.relationship-50)*0.02,
+    steady:(v.cashflow-50)*0.16+(v.relationship-50)*0.1-(v.growth-50)*0.06-(v.freedom-50)*0.06-(v.risk-50)*0.04,
+    bold:(v.risk-50)*0.16+(v.freedom-50)*0.14+(v.growth-50)*0.11-(v.cashflow-50)*0.13-(v.relationship-50)*0.06,
+    retreat:(v.cashflow-50)*0.08+(v.relationship-50)*0.08-(v.growth-50)*0.12-(v.freedom-50)*0.09-(v.identity-50)*0.04
+  };
+  return clamp(Math.round(p.fitScore+d[p.id]),18,96);
+}
+const scoredPaths=()=>scenarioPaths.map(p=>({...p,adjustedScore:scorePath(p,state.variables)})).sort((a,b)=>b.adjustedScore-a.adjustedScore);
+const activePath=()=>{const s=scoredPaths();return s.find(p=>p.id===state.activePathId)||s[0];};
+const selectedNode=()=>allNodes().find(n=>n.id===state.selectedNodeId)||allNodes()[0];
+const survival=()=>clamp(Math.round(48+state.variables.cashflow*0.26+state.variables.relationship*0.08-state.variables.risk*0.1),18,94);
+const actionReadiness=()=>clamp(Math.round((state.checked.size/actionProtocol.length)*46+(state.committed?24:0)+(state.backfill.trim()?18:0)+state.round*2),0,98);
+function relatedEdges(id){return allEdges().filter(e=>e.source===id||e.target===id);}
+function backlinkEdges(id){return allEdges().filter(e=>e.target===id);}
+function outgoingEdges(id){return allEdges().filter(e=>e.source===id);}
+function linkedNodeIds(id){return Array.from(new Set(relatedEdges(id).flatMap(e=>[e.source,e.target])));}
+function noteTags(n){const b=[nodeTypeLabels[n.type],confidenceLabels[n.confidence]];if(n.type==="path")b.push("MOC");if(n.type==="risk")b.push("待验证");if(n.type==="value")b.push("变量");return b;}
+function filteredNodes(){const q=state.query.trim().toLowerCase();if(!q)return allNodes();return allNodes().filter(n=>`${n.label} ${n.explanation} ${n.type} ${noteTags(n).join(" ")}`.toLowerCase().includes(q));}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const wiki=l=>`[[${l}]]`;
+
+/* ===================== DOM 引用 ===================== */
+const $=id=>document.getElementById(id);
+const els={
+  noteCount:$("noteCount"), vaultScroll:$("vaultScroll"), quickReplies:$("quickReplies"),
+  searchInput:$("searchInput"), captureInput:$("captureInput"), captureForm:$("captureForm"),
+  mainHead:$("mainHead"), mainFoot:$("mainFoot"),
+  stage:$("stage"), graphMount:$("graphMount"), graphInfo:$("graphInfo"), graphInfoText:$("graphInfoText"),
+  graphStatus:$("graphStatus"), graphDossier:$("graphDossier"),
+  notePanel:$("notePanel"), canvasPanel:$("canvasPanel"),
+  tabbar:$("tabbar"), rightBody:$("rightBody"), app:$("app")
+};
+
+/* ===================== 渲染 ===================== */
+const rightTabs=[["properties","属性"],["backlinks","反链"],["variables","变量"],["protocol","协议"],["council","反方"]];
+const modes=[["graph","局部图谱"],["note","Markdown"],["canvas","Canvas"]];
+
+function renderVaultStatic(){
+  els.quickReplies.innerHTML=quickReplies.map(r=>`<button type="button" class="ghost" data-act="quickReply" data-text="${esc(r)}">${esc(r)}</button>`).join("");
+}
+function renderVaultScroll(){
+  const sp=scoredPaths(), ap=activePath(), sel=selectedNode();
+  const mocHtml=sp.map(p=>`
+    <button class="moc-btn ${ap.id===p.id?"active":""}" data-act="selectPath" data-id="${p.id}">
+      <div class="moc-row"><span class="nm">${wiki(esc(p.name))}</span><span class="sc">${p.adjustedScore}</span></div>
+      <div class="bar"><i style="width:${p.adjustedScore}%"></i></div>
+    </button>`).join("");
+  const notesHtml=filteredNodes().map(n=>`
+    <button class="note-btn ${sel.id===n.id?"active":""}" data-act="selectNote" data-id="${esc(n.id)}">
+      <div class="note-row"><span class="nm">${wiki(esc(n.label))}</span><span class="ty">${nodeTypeLabels[n.type]}</span></div>
+    </button>`).join("");
+  const tagsHtml=["MOC","变量","待验证","关系","现金流","14天"].map(t=>`<button class="tag" data-act="setTag" data-tag="${esc(t)}">#${esc(t)}</button>`).join("");
+  els.vaultScroll.innerHTML=`
+    <div class="sec">
+      <div class="grp-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>MOC 路径</div>
+      ${mocHtml}
+    </div>
+    <div class="sec">
+      <div class="grp-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Notes</div>
+      <div>${notesHtml||'<p class="muted" style="padding:8px">没有匹配的笔记。</p>'}</div>
+    </div>
+    <div class="sec">
+      <div class="grp-label"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>Tags</div>
+      <div class="tags">${tagsHtml}</div>
+    </div>`;
+  els.noteCount.textContent=`${allNodes().length} notes`;
+}
+
+function renderMainHead(){
+  const sel=selectedNode();
+  els.mainHead.innerHTML=`
+    <div style="min-width:0">
+      <div class="crumb"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8"/></svg>ScenarioOS Vault / ${esc(sel.label)}.md</div>
+      <h1 class="main-title">${esc(sel.label)}</h1>
+    </div>
+    <div class="modes">${modes.map(([id,l])=>`<button class="mode-btn ${state.mode===id?"active":""}" data-act="setMode" data-mode="${id}">${l}</button>`).join("")}</div>`;
+}
+function renderMainFoot(){
+  els.mainFoot.innerHTML=`<span>${esc(state.lastAction)}</span><span>第 ${state.round} 轮 · ${allNodes().length} 笔记 / ${allEdges().length} 链接</span>`;
+}
+
+function renderGraphOverlays(){
+  const sel=selectedNode(), ap=activePath();
+  els.graphInfoText.textContent=`局部图谱 · ${relatedEdges(sel.id).length} 条双链 · 当前 MOC ${ap.name}`;
+  els.graphStatus.innerHTML=`
+    <span class="pill">Notes <span class="v">${allNodes().length}</span></span>
+    <span class="pill">Links <span class="v">${allEdges().length}</span></span>
+    <span class="pill">MOC <span class="v">${ap.adjustedScore}</span></span>
+    <span class="pill">Protocol <span class="v">${state.checked.size}/${actionProtocol.length}</span></span>`;
+  els.graphDossier.innerHTML=`
+    <div class="d-head"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg><h3>${wiki(esc(sel.label))}</h3><span class="muted">${nodeTypeLabels[sel.type]}</span></div>
+    <p>${esc(sel.explanation)}</p>
+    <div class="pill-tags">${noteTags(sel).map(t=>`<span class="pill-tag">#${esc(t)}</span>`).join("")}</div>`;
+}
+
+function renderNotePanel(){
+  const sel=selectedNode(), ap=activePath();
+  const links=relatedEdges(sel.id).slice(0,8).map(e=>{
+    const t=allNodes().find(n=>n.id===(e.source===sel.id?e.target:e.source)); if(!t)return"";
+    return `<button class="linkchip" data-act="selectNote" data-id="${esc(t.id)}">${wiki(esc(t.label))}</button>`;
+  }).join("");
+  els.notePanel.innerHTML=`
+    <div class="article">
+      <div style="border-bottom:1px solid #18181b;padding-bottom:20px;margin-bottom:24px">
+        <div class="pill-tags" style="margin-bottom:12px">${noteTags(sel).map(t=>`<button class="tag" data-act="setTag" data-tag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>
+        <h2 style="font-size:24px;margin-bottom:12px"># ${esc(sel.label)}</h2>
+        <p style="color:#d4d4d8">${esc(sel.explanation)}</p>
+      </div>
+      <div class="md-block"><h3>## YAML Frontmatter</h3><div class="body"><pre>---
+type: ${nodeTypeLabels[sel.type]}
+confidence: ${confidenceLabels[sel.confidence]}
+weight: ${sel.weight}
+links: ${relatedEdges(sel.id).length}
+---</pre></div></div>
+      <div class="md-block"><h3>## Linked Thinking</h3><div class="body">
+        <p style="margin:0 0 12px">这个节点不是单独的建议，而是图谱里的一个笔记。它通过双链连接到相关人物、变量、风险和路径；每一次补充事实都会新增一条可追踪链接。</p>
+        <div class="pill-tags">${links}</div></div></div>
+      <div class="md-block"><h3>## Decision Notes</h3><div class="body"><ul style="margin:0;padding-left:18px;line-height:1.9">
+        <li>当前首选路径：${wiki(esc(ap.name))}，路径分 ${ap.adjustedScore}。</li>
+        <li>18 个月生存概率：${survival()}%。</li>
+        <li>14 天行动准备度：${actionReadiness()}%。</li>
+      </ul></div></div>
+    </div>`;
+}
+
+function renderCanvasPanel(){
+  const sp=scoredPaths(), ap=activePath();
+  const cards=sp.map(p=>`
+    <button class="path-card ${ap.id===p.id?"active":""}" data-act="selectPath" data-id="${p.id}">
+      <div class="row-between" style="margin-bottom:8px"><h4 style="font-size:14px;color:#fafafa">${wiki(esc(p.name))}</h4><span class="sc">${p.adjustedScore}</span></div>
+      <p class="clip3 small" style="color:var(--txt-dim);margin:0 0 12px">${esc(p.coreLogic)}</p>
+      <div class="metric"><div class="top"><span>适配度</span><span class="v">${p.adjustedScore}%</span></div><div class="bar round"><i style="width:${p.adjustedScore}%"></i></div></div>
+    </button>`).join("");
+  const tl=timeline.map(t=>`<div class="tl"><div class="t">${esc(t.time)}</div><h4 style="font-size:14px;color:#e4e4e7">${esc(t.title)}</h4><p class="small" style="color:var(--txt-dim);margin:0">${esc(t.detail)}</p></div>`).join("");
+  els.canvasPanel.innerHTML=`
+    <div class="row-between" style="margin-bottom:20px">
+      <div><div class="muted" style="margin-bottom:4px">Canvas / MOC</div><h2 style="font-size:20px">${esc(ap.name)}</h2></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-solid" data-act="acceptPath">固定协议 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
+        <button class="ghost" data-act="challengePath" style="padding:8px 12px">反方审查</button>
+      </div>
+    </div>
+    <div class="grid2 canvas-grid">
+      <div class="card">
+        <div class="psec-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><h3>路径 Canvas</h3></div>
+        <div class="path-grid">${cards}</div>
+      </div>
+      <div class="stack">
+        <div class="card">
+          <h3 style="margin-bottom:12px">当前 MOC 说明</h3>
+          <p class="small" style="color:var(--txt);margin:0 0 16px">${esc(ap.coreLogic)}</p>
+          <div class="stack">
+            <div class="detail"><div class="k">最大上行收益</div><div class="v">${esc(ap.upside)}</div></div>
+            <div class="detail"><div class="k">机会成本</div><div class="v">${esc(ap.opportunityCost)}</div></div>
+            <div class="detail"><div class="k">失败模式</div><div class="v">${esc(ap.failureMode)}</div></div>
+            <div class="detail"><div class="k">验证实验</div><div class="v">${esc(ap.validationExperiment)}</div></div>
+          </div>
+        </div>
+        <div class="card"><h3 style="margin-bottom:12px">时间线</h3>${tl}</div>
+      </div>
+    </div>`;
+}
+
+function renderTabbar(){
+  els.tabbar.innerHTML=rightTabs.map(([id,l])=>`<button class="tab ${state.rightTab===id?"active":""}" data-act="setRightTab" data-tab="${id}">${l}</button>`).join("");
+}
+
+function linkListHtml(edges, selId){
+  if(!edges.length) return `<p class="small" style="color:var(--txt-dimmer)">暂无链接。</p>`;
+  return edges.map(e=>{
+    const oid=e.source===selId?e.target:e.source;
+    const o=allNodes().find(n=>n.id===oid); if(!o)return"";
+    return `<button class="lnk-card" data-act="selectNote" data-id="${esc(o.id)}">
+      <div class="row-between xs" style="margin-bottom:4px"><span style="color:#e4e4e7">${wiki(esc(o.label))}</span><span style="color:var(--txt-dimmer)">${relationLabels[e.relation]} · ${Math.round(e.strength*100)}%</span></div>
+      <p class="xs" style="color:var(--txt-dim);margin:0">${esc(e.explanation)}</p></button>`;
+  }).join("");
+}
+
+function renderRightBody(){
+  const sel=selectedNode(), t=state.rightTab;
+  let html="";
+  if(t==="properties"){
+    html=`
+    <div class="psec">
+      <div class="psec-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><h3>笔记属性</h3></div>
+      <div class="stack">
+        <div class="kv detail"><div class="k">文件名</div><div class="v">${esc(sel.label)}.md</div></div>
+        <div class="kv detail"><div class="k">类型</div><div class="v">${nodeTypeLabels[sel.type]}</div></div>
+        <div class="kv detail"><div class="k">置信度</div><div class="v">${confidenceLabels[sel.confidence]}</div></div>
+        <div class="metric"><div class="top"><span>节点权重</span><span class="v">${sel.weight}%</span></div><div class="bar round"><i style="width:${sel.weight}%"></i></div></div>
+      </div>
+    </div>
+    <div class="psec">
+      <h4 class="grp-label" style="text-transform:uppercase;letter-spacing:.06em">Tags</h4>
+      <div class="tags">${noteTags(sel).map(x=>`<button class="tag" data-act="setTag" data-tag="${esc(x)}">#${esc(x)}</button>`).join("")}</div>
+    </div>
+    <div class="psec" style="border:none">
+      <div class="stack">
+        <button class="ghost center" data-act="copyWiki"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>复制 WikiLink</button>
+        <button class="ghost center" data-act="pinMoc"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>固定为 MOC 锚点</button>
+      </div>
+    </div>`;
+  } else if(t==="backlinks"){
+    html=`
+    <div class="psec">
+      <div class="psec-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><path d="M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/></svg><h3>反向链接</h3></div>
+      ${linkListHtml(backlinkEdges(sel.id), sel.id)}
+    </div>
+    <div class="psec">
+      <h4 class="grp-label" style="text-transform:uppercase;letter-spacing:.06em">Outgoing Links</h4>
+      ${linkListHtml(outgoingEdges(sel.id), sel.id)}
+    </div>
+    <div class="psec" style="border:none">
+      <h4 class="grp-label" style="text-transform:uppercase;letter-spacing:.06em">Unlinked Mentions</h4>
+      <button class="dashed" data-act="unlinked">发现 1 条可能相关提及：点击写入 Inbox，变成正式双链。</button>
+    </div>`;
+  } else if(t==="variables"){
+    html=`<div class="psec" style="border:none">
+      <div class="row-between" style="margin-bottom:12px">
+        <div class="psec-h" style="margin:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><path d="M16 16v-3a2 2 0 0 0-2-2H4M16 16l-3-3M16 16l-3 3M8 8V5a2 2 0 0 1 2-2h10M8 8 5 5M8 8l-3 3"/></svg><h3>可调变量</h3></div>
+        <button class="ghost" style="border:none;padding:0" data-act="resetVars"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> 重置</button>
+      </div>
+      <p class="small" style="color:var(--txt-dim);margin:0 0 12px">这些变量像 Obsidian 属性一样影响 MOC 排序。</p>
+      ${baseVariables.map(v=>`
+        <label class="slider" data-var-label="${v.id}">
+          <span class="lab"><span>${v.name}</span><span class="v" data-var-val="${v.id}">${state.variables[v.id]}</span></span>
+          <input type="range" min="0" max="100" value="${state.variables[v.id]}" data-var="${v.id}" />
+          <span class="ends"><span>${v.lowLabel}</span><span>${v.highLabel}</span></span>
+        </label>`).join("")}
+    </div>`;
+  } else if(t==="protocol"){
+    html=`
+    <div class="psec">
+      <div class="psec-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><path d="m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8"/></svg><h3>14 天验证协议</h3></div>
+      <div>${actionProtocol.map(it=>`
+        <div class="protocol-li">
+          <button class="chk ${state.checked.has(it.id)?"on":""}" data-act="toggleProtocol" data-id="${it.id}" aria-label="切换：${esc(it.label)}">${state.checked.has(it.id)?'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg>':""}</button>
+          <span><span class="${state.checked.has(it.id)?"strike":""}" style="display:block;color:${state.checked.has(it.id)?"":"#d4d4d8"}">${esc(it.label)}</span><span class="xs" style="display:block;color:var(--txt-dimmer)">${esc(it.detail)}</span></span>
+        </div>`).join("")}</div>
+    </div>
+    <div class="psec" style="border:none">
+      <div class="metric"><div class="top"><span>协议完成度</span><span class="v">${actionReadiness()}%</span></div><div class="bar round green"><i style="width:${actionReadiness()}%"></i></div></div>
+      <textarea class="backfill" id="backfillInput" placeholder="第 14 天把真实结果回填到这里...">${esc(state.backfill)}</textarea>
+      <button class="ghost center" style="margin-top:12px" data-act="submitBackfill">提交现实回填</button>
+    </div>`;
+  } else if(t==="council"){
+    html=`<div class="psec" style="border:none">
+      <div class="psec-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="amber"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg><h3>反方委员会</h3></div>
+      ${councilOpinions.map(o=>`
+        <div class="council-item">
+          <div class="row-between"><h4 style="font-size:14px;color:#e4e4e7">${esc(o.role)}</h4><button class="muted" data-act="selectPath" data-id="${o.targetPathId}">定位 MOC</button></div>
+          <p class="stance">${esc(o.stance)}</p>
+          <p class="small" style="margin:0">${esc(o.challenge)}</p>
+        </div>`).join("")}
+    </div>`;
+  }
+  els.rightBody.innerHTML=html;
+}
+
+function applyMode(){
+  const isGraph=state.mode==="graph";
+  els.graphInfo.style.display=isGraph?"":"none";
+  els.graphStatus.style.display=isGraph?"":"none";
+  els.graphDossier.style.display=isGraph?"":"none";
+  els.notePanel.hidden=state.mode!=="note";
+  els.canvasPanel.hidden=state.mode!=="canvas";
+  graph && graph.setPaused(!isGraph);
+  if(isGraph && graph){ requestAnimationFrame(()=>graph.resize()); }
+}
+
+function renderAll(){
+  renderVaultScroll(); renderMainHead(); renderMainFoot();
+  renderGraphOverlays(); renderNotePanel(); renderCanvasPanel();
+  renderTabbar(); renderRightBody(); applyMode();
+  if(graph) graph.sync();
+}
+
+/* ===================== 动作 ===================== */
+function selectNode(id){
+  state.selectedNodeId=id;
+  if(pathIdByNodeId[id]) state.activePathId=pathIdByNodeId[id];
+  state.rightTab="backlinks";
+  const n=allNodes().find(x=>x.id===id);
+  state.lastAction=`已打开 ${wiki(n?n.label:id)} 的局部图谱。`;
+  renderAll();
+}
+function selectPath(pid){
+  const p=scenarioPaths.find(x=>x.id===pid);
+  state.activePathId=pid; state.mode="canvas";
+  if(p&&p.relatedNodeIds[0]) state.selectedNodeId=p.relatedNodeIds[0];
+  state.lastAction=`Canvas 已聚焦到「${p?p.name:pid}」。`;
+  renderAll();
+}
+function setMode(m){ state.mode=m; state.lastAction=`已切换到 ${modes.find(x=>x[0]===m)[1]} 视图。`; renderAll(); }
+function setRightTab(t){ state.rightTab=t; renderTabbar(); renderRightBody(); }
+function doCapture(){
+  const v=els.captureInput.value.trim(); if(!v){els.captureInput.focus();return;}
+  const id=`capture-${state.customNodes.length+1}`;
+  const node={id,type:"evidence",label:v.length>18?v.slice(0,18)+"...":v,shell:2,weight:46,confidence:"low",explanation:v};
+  const edge={source:state.selectedNodeId,target:id,relation:"revises",strength:0.48,explanation:`这条原子笔记会修正 ${selectedNode().label} 的判断。`};
+  state.customNodes.push(node); state.customEdges.push(edge);
+  const prevLabel=selectedNode().label;
+  state.selectedNodeId=id; state.rightTab="properties"; state.mode="note"; state.round++;
+  state.lastAction=`已新建 ${wiki(node.label)}，并与 ${wiki(prevLabel)} 建立修正链接。`;
+  els.captureInput.value="";
+  if(graph) graph.rebuild();
+  renderAll();
+}
+function regenerate(){
+  const best=scoredPaths()[0];
+  state.activePathId=best.id; state.selectedNodeId=best.relatedNodeIds[0]||"choice"; state.mode="canvas"; state.round++;
+  state.lastAction=`已重算路径，首选 MOC 为「${best.name}」，路径分 ${best.adjustedScore}。`;
+  renderAll();
+}
+function refreshScoreDependent(){
+  renderVaultScroll(); renderGraphOverlays();
+  if(state.mode==="canvas") renderCanvasPanel();
+  if(state.mode==="note") renderNotePanel();
+  renderMainFoot();
+}
+function updateVariable(id,val){
+  state.variables[id]=val;
+  const lab=document.querySelector(`[data-var-val="${id}"]`); if(lab) lab.textContent=val;
+  state.lastAction="变量已更新，路径分和 Canvas 会即时重排。";
+  refreshScoreDependent();
+}
+function resetVars(){ baseVariables.forEach(v=>state.variables[v.id]=v.value); state.lastAction="变量已恢复默认值。"; renderRightBody(); refreshScoreDependent(); }
+function acceptPath(){ state.committed=true; state.rightTab="protocol"; state.mode="canvas"; state.lastAction=`已把「${activePath().name}」固定为 14 天验证协议。`; renderAll(); }
+function challengePath(){ state.rightTab="council"; state.lastAction=`反方委员会正在审查「${activePath().name}」的失败模式。`; renderTabbar(); renderRightBody(); renderMainFoot(); }
+function toggleProtocol(id){ state.checked.has(id)?state.checked.delete(id):state.checked.add(id); renderRightBody(); renderGraphOverlays(); }
+function submitBackfill(){ const ta=$("backfillInput"); const v=ta?ta.value.trim():""; if(!v)return; state.backfill=v; state.round++; state.lastAction="现实回填已进入 vault 的证据层。"; renderRightBody(); refreshScoreDependent(); }
+
+/* ===================== 事件委托 ===================== */
+els.app.addEventListener("click",e=>{
+  const t=e.target.closest("[data-act]"); if(!t)return;
+  const a=t.dataset.act;
+  if(a==="selectNote") selectNode(t.dataset.id);
+  else if(a==="selectPath") selectPath(t.dataset.id);
+  else if(a==="setMode") setMode(t.dataset.mode);
+  else if(a==="setRightTab") setRightTab(t.dataset.tab);
+  else if(a==="setTag"){ state.query=t.dataset.tag; els.searchInput.value=t.dataset.tag; renderVaultScroll(); }
+  else if(a==="quickReply"){ els.captureInput.value=t.dataset.text; els.captureInput.focus(); state.lastAction="快速模板已放入 Inbox，回车即可写入 vault。"; renderMainFoot(); }
+  else if(a==="regenerate") regenerate();
+  else if(a==="resetVars") resetVars();
+  else if(a==="acceptPath") acceptPath();
+  else if(a==="challengePath") challengePath();
+  else if(a==="toggleProtocol") toggleProtocol(t.dataset.id);
+  else if(a==="submitBackfill") submitBackfill();
+  else if(a==="copyWiki"){ const x=wiki(selectedNode().label); navigator.clipboard&&navigator.clipboard.writeText(x); state.lastAction=`已复制 ${x}`; renderMainFoot(); }
+  else if(a==="pinMoc"){ state.mode="canvas"; state.rightTab="properties"; state.lastAction=`${wiki(selectedNode().label)} 已作为当前 MOC 视图锚点。`; renderAll(); }
+  else if(a==="unlinked"){ els.captureInput.value=`${selectedNode().label} 的未链接提及：需要现实证据校准。`; els.captureInput.focus(); }
+});
+els.captureForm.addEventListener("submit",e=>{ e.preventDefault(); doCapture(); });
+els.searchInput.addEventListener("input",e=>{ state.query=e.target.value; renderVaultScroll(); });
+els.rightBody.addEventListener("input",e=>{
+  if(e.target.matches("input[data-var]")) updateVariable(e.target.dataset.var, Number(e.target.value));
+  else if(e.target.id==="backfillInput") state.backfill=e.target.value;
+});
+
+/* ===================== 3D 深空螺旋星系 ===================== */
+let graph=null;
+const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function buildPositions(THREE,nodes){
+  const counts=new Map(), seen=new Map();
+  nodes.forEach(n=>counts.set(n.shell,(counts.get(n.shell)||0)+1));
+  return nodes.map(n=>{
+    const idx=seen.get(n.shell)||0, c=counts.get(n.shell)||1; seen.set(n.shell,idx+1);
+    if(n.shell===0){ const off=n.type==="self"?0.58:-0.58; return {...n,position:new THREE.Vector3(off,0,0)}; }
+    const r=1.05+n.shell*0.92, ang=(idx/c)*Math.PI*2+n.shell*0.48, y=Math.sin(ang*1.7+n.shell)*(0.45+n.shell*0.2);
+    return {...n,position:new THREE.Vector3(Math.cos(ang)*r,y,Math.sin(ang)*r)};
+  });
+}
+
+function createGraph(THREE, mount, onSelect){
+  const nodeColors={action:"#a1a1aa",choice:"#f59e0b",evidence:"#71717a",organization:"#a1a1aa",path:"#d97706",person:"#d4d4d8",risk:"#b91c1c",self:"#fbbf24",value:"#10b981"};
+  const SEL="#fde68a", HL="#f59e0b";
+  let W=Math.max(1,mount.clientWidth), H=Math.max(1,mount.clientHeight);
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color("#030308");
+  scene.fog=new THREE.FogExp2("#030308",0.015);
+  const camera=new THREE.PerspectiveCamera(56,W/H,0.1,1000);
+  camera.position.set(0,0.5,8.6); camera.lookAt(0,0,0);
+  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:"high-performance"});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2)); renderer.setSize(W,H);
+  mount.appendChild(renderer.domElement);
+
+  // 螺旋星系
+  const GP={count:6500,size:0.085,radius:16,branches:3,spin:1.05,randomness:0.55,pow:3};
+  const gGeo=new THREE.BufferGeometry();
+  const gPos=new Float32Array(GP.count*3), gCol=new Float32Array(GP.count*3);
+  const cIn=new THREE.Color("#f59e0b"), cOut=new THREE.Color("#312e81");
+  for(let i=0;i<GP.count;i++){const i3=i*3;const r=Math.random()*GP.radius;const sa=r*GP.spin;const ba=((i%GP.branches)/GP.branches)*Math.PI*2;
+    const sg=()=>Math.random()<0.5?1:-1;
+    const rx=Math.pow(Math.random(),GP.pow)*sg()*GP.randomness*r, ry=Math.pow(Math.random(),GP.pow)*sg()*GP.randomness*r, rz=Math.pow(Math.random(),GP.pow)*sg()*GP.randomness*r;
+    gPos[i3]=Math.cos(ba+sa)*r+rx; gPos[i3+1]=ry*0.18; gPos[i3+2]=Math.sin(ba+sa)*r+rz;
+    const m=cIn.clone().lerp(cOut,r/GP.radius); gCol[i3]=m.r; gCol[i3+1]=m.g; gCol[i3+2]=m.b;
+  }
+  gGeo.setAttribute("position",new THREE.BufferAttribute(gPos,3));
+  gGeo.setAttribute("color",new THREE.BufferAttribute(gCol,3));
+  const gMat=new THREE.PointsMaterial({size:GP.size,sizeAttenuation:true,depthWrite:false,blending:THREE.AdditiveBlending,vertexColors:true,transparent:true,opacity:0.52});
+  const galaxy=new THREE.Points(gGeo,gMat); galaxy.rotation.x=Math.PI*0.2; galaxy.position.y=-1.8; galaxy.renderOrder=-1;
+  scene.add(galaxy);
+  scene.add(new THREE.AmbientLight("#f4f4f5",0.7));
+  const key=new THREE.PointLight("#f59e0b",2.4,28); key.position.set(3.5,4,5); scene.add(key);
+
+  // 图谱组（可重建）
+  const group=new THREE.Group(); group.rotation.x=-0.05; scene.add(group);
+  let positioned=[], nodeIndex=new Map(), nodeMesh, glowMesh, baseLines, hlGeo, hlSeg, halo, rings=[];
+  let targetRX=group.rotation.x, targetRY=0;
+  const tmpM=new THREE.Matrix4(), tmpQ=new THREE.Quaternion(), tmpS=new THREE.Vector3(), tmpC=new THREE.Color();
+  let styleDirty=true;
+
+  function disposeGraphObjs(){
+    [nodeMesh,glowMesh,baseLines,hlSeg,halo].forEach(o=>{ if(o){ group.remove(o); o.geometry&&o.geometry.dispose&&o.geometry.dispose(); o.material&&o.material.dispose&&o.material.dispose(); }});
+    rings.forEach(r=>{ group.remove(r); r.geometry.dispose(); r.material.dispose(); }); rings=[];
+  }
+  function build(nodes,edges){
+    disposeGraphObjs();
+    positioned=buildPositions(THREE,nodes);
+    nodeIndex=new Map(positioned.map((n,i)=>[n.id,{node:n,index:i}]));
+    const nGeo=new THREE.SphereGeometry(0.115,22,22);
+    nodeMesh=new THREE.InstancedMesh(nGeo,new THREE.MeshBasicMaterial(),positioned.length); nodeMesh.renderOrder=1;
+    const glGeo=new THREE.SphereGeometry(0.26,16,16);
+    glowMesh=new THREE.InstancedMesh(glGeo,new THREE.MeshBasicMaterial({transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false}),positioned.length); glowMesh.renderOrder=0;
+    positioned.forEach((n,i)=>{
+      const s=0.72+n.weight/140; tmpS.set(s,s,s); tmpM.compose(n.position,tmpQ,tmpS); nodeMesh.setMatrixAt(i,tmpM);
+      const gs=s*(n.shell===0?1.5:1.2); tmpS.set(gs,gs,gs); tmpM.compose(n.position,tmpQ,tmpS); glowMesh.setMatrixAt(i,tmpM);
+    });
+    nodeMesh.instanceMatrix.needsUpdate=true; glowMesh.instanceMatrix.needsUpdate=true;
+    group.add(glowMesh); group.add(nodeMesh);
+    const bp=[]; edges.forEach(e=>{const s=nodeIndex.get(e.source),t=nodeIndex.get(e.target); if(!s||!t)return; bp.push(s.node.position.x,s.node.position.y,s.node.position.z,t.node.position.x,t.node.position.y,t.node.position.z);});
+    const bGeo=new THREE.BufferGeometry(); bGeo.setAttribute("position",new THREE.Float32BufferAttribute(bp,3));
+    baseLines=new THREE.LineSegments(bGeo,new THREE.LineBasicMaterial({color:"#3f3f46",transparent:true,opacity:0.28})); group.add(baseLines);
+    hlGeo=new THREE.BufferGeometry(); hlGeo.setAttribute("position",new THREE.Float32BufferAttribute(new Float32Array(edges.length*6),3));
+    hlSeg=new THREE.LineSegments(hlGeo,new THREE.LineBasicMaterial({color:"#fcd34d",transparent:true,opacity:0.7})); hlSeg.renderOrder=2; group.add(hlSeg);
+    [1,2,3,4].forEach(sh=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(1.55+sh*1.18,0.004,6,128),new THREE.MeshBasicMaterial({color:"#27272a",transparent:true,opacity:0.32}));ring.rotation.x=Math.PI/2;rings.push(ring);group.add(ring);});
+    halo=new THREE.Mesh(new THREE.SphereGeometry(0.3,24,24),new THREE.MeshBasicMaterial({color:"#f59e0b",transparent:true,opacity:0.34,wireframe:true})); halo.renderOrder=3; group.add(halo);
+    styleDirty=true;
+    curEdges=edges;
+  }
+  let curEdges=[];
+  function applyStyles(){
+    const selId=state.selectedNodeId;
+    const hi=new Set(linkedNodeIds(selId));
+    positioned.forEach((n,i)=>{ const c=n.id===selId?SEL:(hi.has(n.id)?HL:nodeColors[n.type]); nodeMesh.setColorAt(i,tmpC.set(c)); glowMesh.setColorAt(i,tmpC.set(c)); });
+    nodeMesh.instanceColor.needsUpdate=true; glowMesh.instanceColor.needsUpdate=true;
+    const attr=hlGeo.getAttribute("position"), arr=attr.array; let k=0;
+    curEdges.forEach(e=>{ const rel=hi.has(e.source)||hi.has(e.target)||e.source===selId||e.target===selId; if(!rel)return; const s=nodeIndex.get(e.source),t=nodeIndex.get(e.target); if(!s||!t)return; arr[k++]=s.node.position.x;arr[k++]=s.node.position.y;arr[k++]=s.node.position.z;arr[k++]=t.node.position.x;arr[k++]=t.node.position.y;arr[k++]=t.node.position.z; });
+    hlGeo.setDrawRange(0,k/3); attr.needsUpdate=true;
+  }
+
+  build(allNodes(),allEdges());
+
+  // 指针交互
+  const ray=new THREE.Raycaster(), ptr=new THREE.Vector2();
+  let dragging=false,lastX=0,lastY=0,dist=0;
+  const setPtr=e=>{const r=renderer.domElement.getBoundingClientRect();ptr.x=((e.clientX-r.left)/r.width)*2-1;ptr.y=-(((e.clientY-r.top)/r.height)*2-1);};
+  const down=e=>{dragging=true;dist=0;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId);};
+  const move=e=>{if(!dragging)return;const dx=e.clientX-lastX,dy=e.clientY-lastY;dist+=Math.abs(dx)+Math.abs(dy);targetRY+=dx*0.004;targetRX=Math.max(-0.78,Math.min(0.42,targetRX+dy*0.0025));lastX=e.clientX;lastY=e.clientY;};
+  const up=e=>{if(renderer.domElement.hasPointerCapture(e.pointerId))renderer.domElement.releasePointerCapture(e.pointerId);dragging=false;if(dist>8)return;setPtr(e);ray.setFromCamera(ptr,camera);const hit=ray.intersectObject(nodeMesh)[0];if(hit&&typeof hit.instanceId==="number"&&positioned[hit.instanceId])onSelect(positioned[hit.instanceId].id);};
+  const wheel=e=>{e.preventDefault();camera.position.z=Math.max(5.6,Math.min(13,camera.position.z+e.deltaY*0.005));};
+  renderer.domElement.addEventListener("pointerdown",down);
+  renderer.domElement.addEventListener("pointermove",move);
+  renderer.domElement.addEventListener("pointerup",up);
+  renderer.domElement.addEventListener("pointercancel",up);
+  renderer.domElement.addEventListener("wheel",wheel,{passive:false});
+
+  let paused=false, raf=0; const clock=new THREE.Clock();
+  function loop(){
+    raf=requestAnimationFrame(loop);
+    if(paused)return;
+    if(styleDirty){applyStyles();styleDirty=false;}
+    const t=clock.getElapsedTime();
+    if(!reduceMotion){ targetRY+=0.0008; galaxy.rotation.y=t*0.02; rings.forEach(r=>r.rotation.z+=0.0007); }
+    group.rotation.y+=(targetRY-group.rotation.y)*0.06;
+    group.rotation.x+=(targetRX-group.rotation.x)*0.06;
+    const sel=nodeIndex.get(state.selectedNodeId);
+    if(sel){halo.visible=true;halo.position.copy(sel.node.position);halo.scale.setScalar(reduceMotion?1.04:1+Math.sin(t*4)*0.11);}else halo.visible=false;
+    renderer.render(scene,camera);
+  }
+  loop();
+
+  function resize(){W=Math.max(1,mount.clientWidth);H=Math.max(1,mount.clientHeight);camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);}
+  window.addEventListener("resize",resize);
+  let ro; if(typeof ResizeObserver!=="undefined"){ro=new ResizeObserver(resize);ro.observe(mount);}
+
+  return {
+    sync(){styleDirty=true;},
+    resize,
+    rebuild(){build(allNodes(),allEdges());},
+    setPaused(p){paused=p;},
+    dispose(){cancelAnimationFrame(raf);window.removeEventListener("resize",resize);ro&&ro.disconnect();disposeGraphObjs();gGeo.dispose();gMat.dispose();renderer.dispose();if(mount.contains(renderer.domElement))mount.removeChild(renderer.domElement);}
+  };
+}
+
+function renderFallback(){
+  const sel=state.selectedNodeId, hi=new Set(linkedNodeIds(sel));
+  const shells=[...new Set(allNodes().map(n=>n.shell))].sort((a,b)=>a-b);
+  els.graphMount.innerHTML=`<div class="fallback">
+    <div class="pill" style="margin-bottom:16px"><span class="dot"></span>2D 图谱视图（当前环境未启用 WebGL）· ${allNodes().length} 节点 / ${allEdges().length} 链接</div>
+    ${shells.map(sh=>`<div style="margin-bottom:20px"><p class="shell-label">Shell ${sh}</p><div class="tags">${allNodes().filter(n=>n.shell===sh).map(n=>`<button class="chip ${n.id===sel?"active":(hi.has(n.id)?"hl":"")}" data-act="selectNote" data-id="${esc(n.id)}">${wiki(esc(n.label))} <span style="color:var(--txt-dimmer);font-size:10px">${nodeTypeLabels[n.type]}</span></button>`).join("")}</div></div>`).join("")}
+  </div>`;
+}
+
+/* ===================== 启动 ===================== */
+renderVaultStatic();
+renderAll();
+
+(async ()=>{
+  let THREE=null;
+  try{ THREE=await import("three"); }catch(err){ console.warn("Three.js 加载失败，使用 2D 降级视图：",err); }
+  if(THREE && (function(){try{const c=document.createElement("canvas");return !!(window.WebGLRenderingContext&&(c.getContext("webgl")||c.getContext("experimental-webgl")));}catch(e){return false;}})()){
+    try{
+      graph=createGraph(THREE.default?THREE.default:THREE, els.graphMount, selectNode);
+      // 用命名空间或 default 兼容
+      graph.sync(); applyMode();
+    }catch(err){ console.warn("3D 初始化失败，使用 2D 降级视图：",err); graph=null; renderFallback(); }
+  } else {
+    renderFallback();
+  }
+})();
+</script>
+</body>
+</html>

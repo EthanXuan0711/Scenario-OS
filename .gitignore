@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Next.js / build output
+.next/
+out/
+dist/
+build/
+.vercel/
+
+# Caches & runtime
+.runtime/
+.npm-cache/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.*
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
