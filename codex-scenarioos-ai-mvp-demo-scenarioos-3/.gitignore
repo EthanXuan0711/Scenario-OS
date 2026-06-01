@@ -7,3 +7,7 @@ out
 .npm-cache
 .DS_Store
 *.local
+*.log
+next-dev*.log
+tsconfig.tsbuildinfo
+*.bak

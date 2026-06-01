@@ -9,6 +9,8 @@ type ElectronCloud3DProps = {
   edges: ScenarioEdge[];
   selectedNodeId: string;
   highlightedNodeIds?: string[];
+  /** 聚焦集：非空时，集合外（且未选中）的节点会被压暗。用于"邻居聚焦"与"搜索高亮"。 */
+  focusNodeIds?: string[] | null;
   onNodeSelect: (nodeId: string) => void;
   pulseSeed: number;
 };
@@ -30,8 +32,23 @@ const nodeColors: Record<ScenarioNode["type"], string> = {
   value: "#10b981"
 };
 
+// 标签默认配色：在深空底色上保证可读性，核心语义类型略加暖/冷色调。
+const labelColors: Record<ScenarioNode["type"], string> = {
+  action: "#c7c7d1",
+  choice: "#fcd34d",
+  evidence: "#9a9aa5",
+  organization: "#c7c7d1",
+  path: "#fbbf24",
+  person: "#dcdce4",
+  risk: "#f0a3a3",
+  self: "#fde68a",
+  value: "#86efac"
+};
+
 const SELECTED_COLOR = "#fde68a";
 const HIGHLIGHT_COLOR = "#f59e0b";
+const SELECTED_LABEL = "#fef3c7";
+const HIGHLIGHT_LABEL = "#fcd34d";
 
 function prefersReducedMotion() {
   if (typeof window === "undefined" || !window.matchMedia) return false;
@@ -78,10 +95,69 @@ function buildPositions(nodes: ScenarioNode[]) {
   });
 }
 
+// 文字标签贴图：白色文字（运行时用 material.color 着色），带柔和描边以保证深空底色上的可读性。
+function makeLabelTexture(text: string) {
+  const dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, 2);
+  const fontSize = 40;
+  const padX = 10;
+  const padY = 8;
+  const font = `500 ${fontSize}px "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif`;
+
+  const measureCanvas = document.createElement("canvas");
+  const measureCtx = measureCanvas.getContext("2d")!;
+  measureCtx.font = font;
+  const textWidth = Math.ceil(measureCtx.measureText(text).width);
+
+  const cssWidth = textWidth + padX * 2;
+  const cssHeight = fontSize + padY * 2;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(cssWidth * dpr);
+  canvas.height = Math.ceil(cssHeight * dpr);
+
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(dpr, dpr);
+  ctx.font = font;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  // 柔和阴影描边：让浅色文字在亮节点附近也清晰
+  ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text, padX, cssHeight / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 2;
+  texture.needsUpdate = true;
+
+  return { texture, aspect: cssWidth / cssHeight };
+}
+
+// 节点辉光精灵贴图：径向渐变白色光斑，叠加混合后形成"发光核心 + bloom"质感。
+function makeGlowTexture() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(255,255,255,1)");
+  gradient.addColorStop(0.2, "rgba(255,255,255,0.75)");
+  gradient.addColorStop(0.5, "rgba(255,255,255,0.22)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  return texture;
+}
+
 // 底层螺旋星系：提供"内核科幻"的沉浸感，作为决策图谱漂浮其上的深空背景。
 function buildGalaxy() {
   const params = {
-    count: 6500,
+    count: 9000,
     size: 0.085,
     radius: 16,
     branches: 3,
@@ -129,7 +205,7 @@ function buildGalaxy() {
     blending: THREE.AdditiveBlending,
     vertexColors: true,
     transparent: true,
-    opacity: 0.52
+    opacity: 0.58
   });
 
   const points = new THREE.Points(geometry, material);
@@ -139,17 +215,51 @@ function buildGalaxy() {
   return { points, geometry, material };
 }
 
+// 远景星点层：包裹整个场景的稀疏白色星点，增强"深空 + 闪烁"的纵深感。
+function buildStarfield() {
+  const count = 1400;
+  const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(count * 3);
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    // 球壳分布，留出中心给决策图谱
+    const radius = 9 + Math.random() * 16;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+    positions[i3 + 1] = radius * Math.cos(phi) * 0.7;
+    positions[i3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+  }
+
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    size: 0.05,
+    sizeAttenuation: true,
+    color: "#cdd2ff",
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const points = new THREE.Points(geometry, material);
+  points.renderOrder = -2;
+  return { points, geometry, material };
+}
+
 export default function ElectronCloud3D({
   nodes,
   edges,
   selectedNodeId,
   highlightedNodeIds = [],
+  focusNodeIds = null,
   onNodeSelect,
   pulseSeed
 }: ElectronCloud3DProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef(selectedNodeId);
   const highlightedSetRef = useRef<Set<string>>(new Set(highlightedNodeIds));
+  const focusSetRef = useRef<Set<string> | null>(focusNodeIds && focusNodeIds.length ? new Set(focusNodeIds) : null);
   const onNodeSelectRef = useRef(onNodeSelect);
   const pulseSeedRef = useRef(pulseSeed);
   const styleDirtyRef = useRef(true);
@@ -158,6 +268,7 @@ export default function ElectronCloud3D({
 
   const positionedNodes = useMemo(() => buildPositions(nodes), [nodes]);
   const highlightedKey = useMemo(() => highlightedNodeIds.join("|"), [highlightedNodeIds]);
+  const focusKey = useMemo(() => (focusNodeIds ? focusNodeIds.join("|") : ""), [focusNodeIds]);
 
   // 实时同步交互状态到 ref，供渲染循环读取（避免因选中态变化而重建整个场景）。
   onNodeSelectRef.current = onNodeSelect;
@@ -167,8 +278,10 @@ export default function ElectronCloud3D({
   useEffect(() => {
     selectedIdRef.current = selectedNodeId;
     highlightedSetRef.current = new Set(highlightedNodeIds);
+    focusSetRef.current = focusNodeIds && focusNodeIds.length ? new Set(focusNodeIds) : null;
     styleDirtyRef.current = true;
-  }, [selectedNodeId, highlightedKey, highlightedNodeIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNodeId, highlightedKey, focusKey]);
 
   // 重场景构建：仅在节点/连线结构变化时执行一次。
   useEffect(() => {
@@ -187,7 +300,7 @@ export default function ElectronCloud3D({
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#030308");
-    scene.fog = new THREE.FogExp2("#030308", 0.015);
+    scene.fog = new THREE.FogExp2("#030308", 0.014);
 
     const camera = new THREE.PerspectiveCamera(56, width / height, 0.1, 1000);
     camera.position.set(0, 0.5, 8.6);
@@ -205,9 +318,15 @@ export default function ElectronCloud3D({
     mount.appendChild(renderer.domElement);
     setRenderMode("webgl");
 
-    // --- 深空螺旋星系背景 ---
+    // --- 远景星点 + 深空螺旋星系背景 ---
+    const starfield = buildStarfield();
+    scene.add(starfield.points);
+
     const galaxy = buildGalaxy();
     scene.add(galaxy.points);
+
+    // 共享的辉光贴图（节点核心 bloom）
+    const glowTexture = makeGlowTexture();
 
     // --- 决策图谱组（漂浮在星系之上） ---
     const graphGroup = new THREE.Group();
@@ -229,7 +348,7 @@ export default function ElectronCloud3D({
     const glowGeometry = new THREE.SphereGeometry(0.26, 16, 16);
     const glowMaterial = new THREE.MeshBasicMaterial({
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.2,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -241,6 +360,21 @@ export default function ElectronCloud3D({
     const scaleVector = new THREE.Vector3();
     const color = new THREE.Color();
 
+    // 每个节点的核心 bloom 精灵 + 文字标签 + 部分节点的原子轨道环
+    type NodeDeco = {
+      index: number;
+      bloom: THREE.Sprite;
+      label: THREE.Sprite;
+      labelBase: THREE.Color;
+      rings: Array<{ mesh: THREE.Mesh; speed: number; axis: "x" | "y" | "z" }>;
+    };
+    const decos: NodeDeco[] = [];
+    const bloomMaterials: THREE.SpriteMaterial[] = [];
+    const labelTextures: THREE.Texture[] = [];
+    const labelMaterials: THREE.SpriteMaterial[] = [];
+    const ringGeometries: THREE.BufferGeometry[] = [];
+    const ringMaterials: THREE.Material[] = [];
+
     positionedNodes.forEach((node, index) => {
       const scale = 0.72 + node.weight / 140;
       scaleVector.set(scale, scale, scale);
@@ -251,6 +385,77 @@ export default function ElectronCloud3D({
       scaleVector.set(glowScale, glowScale, glowScale);
       matrix.compose(node.position, quaternion, scaleVector);
       glowMesh.setMatrixAt(index, matrix);
+
+      const baseColor = new THREE.Color(nodeColors[node.type]);
+
+      // 核心 bloom 精灵（径向辉光，叠加在节点上形成发亮核心）
+      const bloomMaterial = new THREE.SpriteMaterial({
+        map: glowTexture,
+        color: baseColor.clone(),
+        transparent: true,
+        opacity: node.shell === 0 ? 0.85 : 0.6,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false
+      });
+      const bloom = new THREE.Sprite(bloomMaterial);
+      const bloomScale = (node.shell === 0 ? 1.5 : 1.0) * (0.7 + node.weight / 120);
+      bloom.scale.setScalar(bloomScale);
+      bloom.position.copy(node.position);
+      bloom.renderOrder = 2;
+      graphGroup.add(bloom);
+      bloomMaterials.push(bloomMaterial);
+
+      // 文字标签精灵（白字 + material.color 着色），锚定在节点右侧
+      const { texture: labelTexture, aspect } = makeLabelTexture(node.label);
+      const labelBase = new THREE.Color(labelColors[node.type]);
+      const labelMaterial = new THREE.SpriteMaterial({
+        map: labelTexture,
+        color: labelBase.clone(),
+        transparent: true,
+        opacity: 0, // 默认隐藏，由 applyStyles 在选中/相关时点亮
+        depthWrite: false,
+        depthTest: false
+      });
+      const label = new THREE.Sprite(labelMaterial);
+      const labelHeight = 0.22 + node.weight / 520;
+      label.scale.set(labelHeight * aspect, labelHeight, 1);
+      label.center.set(0, 0.5); // 左-中锚点，让文字从节点右侧向外延伸
+      label.position.copy(node.position).add(new THREE.Vector3(scale * 0.14 + 0.05, 0.02, 0));
+      label.renderOrder = 5;
+      graphGroup.add(label);
+      labelTextures.push(labelTexture);
+      labelMaterials.push(labelMaterial);
+
+      // 原子轨道环：仅给核心/高权重节点添加，避免拥挤
+      const rings: NodeDeco["rings"] = [];
+      const isProminent = node.shell <= 1 || node.weight >= 62 || node.type === "choice" || node.type === "self";
+      if (isProminent) {
+        const ringCount = node.shell === 0 ? 2 : 1;
+        for (let r = 0; r < ringCount; r++) {
+          const ringRadius = scale * (0.42 + r * 0.16);
+          const ringGeometry = new THREE.TorusGeometry(ringRadius, 0.006, 6, 90);
+          const ringMaterial = new THREE.MeshBasicMaterial({
+            color: baseColor.clone().lerp(new THREE.Color("#ffffff"), 0.3),
+            transparent: true,
+            opacity: 0.4,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+          });
+          const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+          ring.position.copy(node.position);
+          ring.rotation.x = Math.PI / 2 + (r === 0 ? 0.5 : -0.4);
+          ring.rotation.y = r * 0.8 + index * 0.3;
+          ring.renderOrder = 1;
+          graphGroup.add(ring);
+          ringGeometries.push(ringGeometry);
+          ringMaterials.push(ringMaterial);
+          const axes: Array<"x" | "y" | "z"> = ["x", "y", "z"];
+          rings.push({ mesh: ring, speed: 0.004 + Math.random() * 0.006, axis: axes[(index + r) % 3] });
+        }
+      }
+
+      decos.push({ index, bloom, label, labelBase, rings });
     });
     nodeMesh.instanceMatrix.needsUpdate = true;
     glowMesh.instanceMatrix.needsUpdate = true;
@@ -281,17 +486,46 @@ export default function ElectronCloud3D({
 
     // 同心壳层指示环
     const ringGroup = new THREE.Group();
-    const ringMeshes: THREE.Mesh[] = [];
+    const shellRingMeshes: THREE.Mesh[] = [];
     [1, 2, 3, 4].forEach((shell) => {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(1.55 + shell * 1.18, 0.004, 6, 128),
         new THREE.MeshBasicMaterial({ color: "#27272a", transparent: true, opacity: 0.32 })
       );
       ring.rotation.x = Math.PI / 2;
-      ringMeshes.push(ring);
+      shellRingMeshes.push(ring);
       ringGroup.add(ring);
     });
     graphGroup.add(ringGroup);
+
+    // 焦点大扫掠圆环：围绕选中节点的多圈大同心环，随选中节点移动、缓慢自转。
+    const focalGroup = new THREE.Group();
+    const focalRings: Array<{ mesh: THREE.Mesh; speed: number }> = [];
+    const focalSpecs = [
+      { radius: 0.62, tilt: 0.4, tiltY: 0.2, opacity: 0.55 },
+      { radius: 0.92, tilt: -0.7, tiltY: 0.5, opacity: 0.4 },
+      { radius: 1.34, tilt: 0.3, tiltY: -0.6, opacity: 0.28 },
+      { radius: 1.9, tilt: -0.45, tiltY: 0.35, opacity: 0.18 }
+    ];
+    focalSpecs.forEach((spec, i) => {
+      const geometry = new THREE.TorusGeometry(spec.radius, 0.008, 8, 160);
+      const material = new THREE.MeshBasicMaterial({
+        color: "#fcd34d",
+        transparent: true,
+        opacity: spec.opacity,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const ring = new THREE.Mesh(geometry, material);
+      ring.rotation.x = Math.PI / 2 + spec.tilt;
+      ring.rotation.y = spec.tiltY;
+      ringGeometries.push(geometry);
+      ringMaterials.push(material);
+      focalGroup.add(ring);
+      focalRings.push({ mesh: ring, speed: (i % 2 === 0 ? 1 : -1) * (0.0025 + i * 0.0015) });
+    });
+    focalGroup.visible = false;
+    graphGroup.add(focalGroup);
 
     // 选中节点的脉冲光环
     const haloGeometry = new THREE.SphereGeometry(0.3, 24, 24);
@@ -305,20 +539,41 @@ export default function ElectronCloud3D({
     selectedHalo.renderOrder = 3;
     graphGroup.add(selectedHalo);
 
-    // 增量刷新：节点配色 + 高亮连线（由 styleDirtyRef 触发）
+    // 增量刷新：节点配色 + bloom/标签着色 + 高亮连线（由 styleDirtyRef 触发）
     const applyStyles = () => {
       const selId = selectedIdRef.current;
       const highlighted = highlightedSetRef.current;
+      const focus = focusSetRef.current;
+      const dimColor = new THREE.Color("#0a0a16");
 
       positionedNodes.forEach((node, index) => {
         const isSelected = node.id === selId;
         const isHighlighted = highlighted.has(node.id);
+        const isDimmed = focus !== null && !focus.has(node.id) && !isSelected;
         const base = isSelected ? SELECTED_COLOR : isHighlighted ? HIGHLIGHT_COLOR : nodeColors[node.type];
-        nodeMesh.setColorAt(index, color.set(base));
-        glowMesh.setColorAt(index, color.set(base));
+        color.set(base);
+        if (isDimmed) color.lerp(dimColor, 0.82);
+        nodeMesh.setColorAt(index, color);
+        glowMesh.setColorAt(index, color);
       });
       nodeMesh.instanceColor!.needsUpdate = true;
       glowMesh.instanceColor!.needsUpdate = true;
+
+      // bloom 与标签着色：当前最亮、邻居/匹配次亮、无关压暗
+      decos.forEach((deco) => {
+        const node = positionedNodes[deco.index];
+        const isSelected = node.id === selId;
+        const isHighlighted = highlighted.has(node.id);
+        const isDimmed = focus !== null && !focus.has(node.id) && !isSelected;
+        const bloomColor = isSelected ? SELECTED_COLOR : isHighlighted ? HIGHLIGHT_COLOR : nodeColors[node.type];
+        deco.bloom.material.color.set(bloomColor);
+        deco.bloom.material.opacity = isDimmed ? 0.04 : isSelected ? 1 : isHighlighted ? 0.8 : node.shell === 0 ? 0.85 : 0.6;
+
+        const labelColor = isSelected ? SELECTED_LABEL : isHighlighted ? HIGHLIGHT_LABEL : `#${deco.labelBase.getHexString()}`;
+        deco.label.material.color.set(labelColor);
+        // 标签仅在选中及其相关/匹配节点时显示，无关隐藏
+        deco.label.material.opacity = isDimmed ? 0 : isSelected ? 1 : isHighlighted ? 0.7 : 0;
+      });
 
       const positionAttribute = highlightGeometry.getAttribute("position") as THREE.BufferAttribute;
       const array = positionAttribute.array as Float32Array;
@@ -421,7 +676,19 @@ export default function ElectronCloud3D({
       if (!reduceMotion) {
         targetRotationY += 0.0008 + pulseSeedRef.current * 0.000002;
         galaxy.points.rotation.y = elapsed * 0.02;
+        starfield.points.rotation.y = elapsed * 0.006;
         ringGroup.rotation.z += 0.0007;
+
+        // 原子轨道环自转
+        decos.forEach((deco) => {
+          deco.rings.forEach((ring) => {
+            ring.mesh.rotation[ring.axis] += ring.speed;
+          });
+        });
+        // 焦点大圆环自转
+        focalRings.forEach((ring) => {
+          ring.mesh.rotation.z += ring.speed;
+        });
       }
       graphGroup.rotation.y += (targetRotationY - graphGroup.rotation.y) * 0.06;
       graphGroup.rotation.x += (targetRotationX - graphGroup.rotation.x) * 0.06;
@@ -432,8 +699,14 @@ export default function ElectronCloud3D({
         selectedHalo.position.copy(selected.position);
         const pulse = reduceMotion ? 1.04 : 1 + Math.sin(elapsed * 4) * 0.11;
         selectedHalo.scale.setScalar(pulse);
+
+        focalGroup.visible = true;
+        focalGroup.position.copy(selected.position);
+        const focalPulse = reduceMotion ? 1 : 1 + Math.sin(elapsed * 1.6) * 0.03;
+        focalGroup.scale.setScalar(focalPulse);
       } else {
         selectedHalo.visible = false;
+        focalGroup.visible = false;
       }
 
       renderer.render(scene, camera);
@@ -467,8 +740,11 @@ export default function ElectronCloud3D({
       cancelAnimationFrame(animationFrameId);
       if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
 
+      starfield.geometry.dispose();
+      starfield.material.dispose();
       galaxy.geometry.dispose();
       galaxy.material.dispose();
+      glowTexture.dispose();
       nodeGeometry.dispose();
       nodeMaterial.dispose();
       glowGeometry.dispose();
@@ -479,7 +755,12 @@ export default function ElectronCloud3D({
       highlightMaterial.dispose();
       haloGeometry.dispose();
       haloMaterial.dispose();
-      ringMeshes.forEach((ring) => {
+      bloomMaterials.forEach((material) => material.dispose());
+      labelTextures.forEach((texture) => texture.dispose());
+      labelMaterials.forEach((material) => material.dispose());
+      ringGeometries.forEach((geometry) => geometry.dispose());
+      ringMaterials.forEach((material) => material.dispose());
+      shellRingMeshes.forEach((ring) => {
         ring.geometry.dispose();
         (ring.material as THREE.Material).dispose();
       });

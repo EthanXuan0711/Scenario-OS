@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import {
   Activity,
   BookOpen,
@@ -15,6 +16,9 @@ import {
   Link2,
   ListChecks,
   MessageSquarePlus,
+  Orbit,
+  PanelLeftClose,
+  PanelRightClose,
   Pin,
   Plus,
   RefreshCw,
@@ -37,6 +41,13 @@ import {
 } from "../data/scenarioOS";
 import type { DecisionVariable, ScenarioEdge, ScenarioNode, ScenarioPath } from "../types";
 import ElectronCloud3D from "./ElectronCloud3D";
+import WorkspaceChatDrawer from "./WorkspaceChatDrawer";
+import RailBar from "./RailBar";
+import GraphControlBar from "./GraphControlBar";
+import GraphLegend from "./graph-workspace/GraphLegend";
+import { deriveScenarioOverrides, matchArchetypeKey } from "./deriveScenario";
+import { loadScenario, saveScenario } from "./scenarioBridge";
+import UserMenu from "./user/UserMenu";
 
 type WorkspaceMode = "graph" | "note" | "canvas";
 type RightTab = "properties" | "backlinks" | "variables" | "protocol" | "council";
@@ -152,8 +163,44 @@ function wikiLink(label: string) {
   return `[[${label}]]`;
 }
 
+// 根据输入关键词推断笔记节点类型（供 AI 推演抽屉生成节点用）
+function classifyNoteType(text: string): ScenarioNode["type"] {
+  if (/(风险|危机|担心|亏|崩|监管|违规|失败|焦虑|压力|对手|竞争|裁员|纠纷)/.test(text)) return "risk";
+  if (/(价值|意义|成长|自由|理想|增长|机会|愿景)/.test(text)) return "value";
+  if (/(用户|客户|家人|朋友|老板|投资|团队|合伙|媒体|导师|粉丝)/.test(text)) return "person";
+  if (/(公司|平台|组织|机构|部门|渠道|协会)/.test(text)) return "organization";
+  if (/(选择|抉择|要不要|是否|决定|方向|取舍)/.test(text)) return "choice";
+  if (/(行动|执行|计划|尝试|启动|落地|推进)/.test(text)) return "action";
+  return "evidence";
+}
+
+function deriveNodeLabel(text: string) {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (compact.length <= 18) return compact;
+  return `${compact.slice(0, 18)}...`;
+}
+
+function inferVariableAdjustments(text: string, current: VariableValues) {
+  const normalized = text.toLowerCase();
+  const rules: Array<{ id: DecisionVariable["id"]; keywords: string[]; delta: number }> = [
+    { id: "risk", keywords: ["风险", "冒险", "不确定", "激进", "全职", "risk"], delta: 8 },
+    { id: "cashflow", keywords: ["现金流", "收入", "存款", "预算", "钱", "缓冲", "cash"], delta: 8 },
+    { id: "growth", keywords: ["成长", "学习", "机会", "窗口", "ai", "增长", "growth"], delta: 7 },
+    { id: "freedom", keywords: ["自由", "自主", "独立", "远程", "freedom"], delta: 6 },
+    { id: "relationship", keywords: ["家人", "合伙", "关系", "团队", "朋友", "relationship"], delta: 6 },
+    { id: "identity", keywords: ["身份", "长期", "价值", "成为", "方向", "identity"], delta: 6 }
+  ];
+
+  return rules.reduce((next, rule) => {
+    if (rule.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+      return { ...next, [rule.id]: clamp(next[rule.id] + rule.delta) };
+    }
+    return next;
+  }, { ...current });
+}
+
 export default function ScenarioWorkspace() {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("graph");
   const [rightTab, setRightTab] = useState<RightTab>("backlinks");
   const [selectedNodeId, setSelectedNodeId] = useState("choice");
@@ -164,13 +211,29 @@ export default function ScenarioWorkspace() {
   const [activePathId, setActivePathId] = useState<ScenarioPath["id"]>("hybrid");
   const [customNodes, setCustomNodes] = useState<ScenarioNode[]>([]);
   const [customEdges, setCustomEdges] = useState<ScenarioEdge[]>([]);
+  const [nodeOverrides, setNodeOverrides] = useState<Record<string, Partial<ScenarioNode>>>({});
+  const [scenarioMeta, setScenarioMeta] = useState<{ active: boolean; topic: string; input: string; archetypeKey: string }>({
+    active: false,
+    topic: "",
+    input: "",
+    archetypeKey: "generic"
+  });
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [committed, setCommitted] = useState(false);
   const [round, setRound] = useState(1);
   const [backfill, setBackfill] = useState("");
+  const [leftDetailsOpen, setLeftDetailsOpen] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   const [lastAction, setLastAction] = useState("图谱已载入，选择任意节点查看反链。");
 
-  const allNodes = useMemo(() => [...graphNodes, ...customNodes], [customNodes]);
+  const allNodes = useMemo(
+    () => [
+      ...graphNodes.map((node) => (nodeOverrides[node.id] ? { ...node, ...nodeOverrides[node.id] } : node)),
+      ...customNodes
+    ],
+    [customNodes, nodeOverrides]
+  );
   const allEdges = useMemo(() => [...graphEdges, ...customEdges], [customEdges]);
 
   const scoredPaths = useMemo(
@@ -212,10 +275,53 @@ export default function ScenarioWorkspace() {
     );
   }, [allNodes, query]);
 
+  const searchActive = query.trim().length > 0;
+  const matchIds = useMemo(() => filteredNodes.map((node) => node.id), [filteredNodes]);
+  // 图谱高亮集 / 聚焦集：搜索时高亮匹配并压暗其余；否则高亮一度邻居并压暗无关
+  const graphHighlightIds = useMemo(() => (searchActive ? matchIds : linkedNodeIds), [searchActive, matchIds, linkedNodeIds]);
+  const graphFocusIds = useMemo(
+    () => (searchActive ? matchIds : [selectedNode.id, ...linkedNodeIds]),
+    [searchActive, matchIds, selectedNode.id, linkedNodeIds]
+  );
+
+  const graphRef = useRef<HTMLElement>(null);
+  const zoomGraph = (deltaY: number) => {
+    const canvas = graphRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY,
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2
+      })
+    );
+  };
+
+
   const survival = useMemo(
     () => clamp(Math.round(48 + variables.cashflow * 0.26 + variables.relationship * 0.08 - variables.risk * 0.1), 18, 94),
     [variables]
   );
+
+  // 写入共享场景：议题 + 推演原型 + 变量 → 供社会沙盘联动。
+  useEffect(() => {
+    if (scenarioMeta.active) saveScenario({ ...scenarioMeta, variables });
+  }, [scenarioMeta, variables]);
+
+  // 挂载时从共享场景恢复，保持工作台与社会沙盘一致。
+  useEffect(() => {
+    const shared = loadScenario();
+    if (shared?.active && shared.input) {
+      setScenarioMeta({ active: true, topic: shared.topic, input: shared.input, archetypeKey: shared.archetypeKey });
+      setNodeOverrides((current) => ({ ...current, ...deriveScenarioOverrides(shared.input, shared.topic) }));
+      if (shared.variables) setVariables(shared.variables);
+      setSelectedNodeId("choice");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const actionReadiness = useMemo(
     () => clamp(Math.round((checked.size / actionProtocol.length) * 46 + (committed ? 24 : 0) + (backfill.trim() ? 18 : 0) + round * 2), 0, 98),
@@ -233,9 +339,8 @@ export default function ScenarioWorkspace() {
   const selectPath = (pathId: ScenarioPath["id"]) => {
     const nextPath = scenarioPaths.find((path) => path.id === pathId);
     setActivePathId(pathId);
-    setWorkspaceMode("canvas");
     if (nextPath?.relatedNodeIds[0]) setSelectedNodeId(nextPath.relatedNodeIds[0]);
-    setLastAction(`Canvas 已聚焦到「${nextPath?.name ?? pathId}」。`);
+    setLastAction(`已聚焦到「${nextPath?.name ?? pathId}」。`);
   };
 
   const submitCapture = () => {
@@ -245,37 +350,92 @@ export default function ScenarioWorkspace() {
       return;
     }
 
+    const label = deriveNodeLabel(trimmed);
+    // 用输入更新中心「转行 AI」议题——中心星球随之改变
+    setNodeOverrides((current) => ({ ...current, ...deriveScenarioOverrides(trimmed, label) }));
+    setScenarioMeta({ active: true, topic: label, input: trimmed, archetypeKey: matchArchetypeKey(trimmed) });
+
+    // 同时生成一颗关联笔记星，连到中心
     const id = `capture-${customNodes.length + 1}`;
     const nextNode: ScenarioNode = {
       id,
       type: "evidence",
-      label: trimmed.length > 18 ? `${trimmed.slice(0, 18)}...` : trimmed,
-      shell: 2,
-      weight: 46,
+      label,
+      shell: 1,
+      weight: clamp(42 + Math.round(trimmed.length / 4), 42, 82),
       confidence: "low",
       explanation: trimmed
     };
     const nextEdge: ScenarioEdge = {
-      source: selectedNode.id,
+      source: "choice",
       target: id,
-      relation: "revises",
-      strength: 0.48,
-      explanation: `这条原子笔记会修正 ${selectedNode.label} 的判断。`
+      relation: "supports",
+      strength: 0.5,
+      explanation: `这条原子笔记支撑中心议题「${label}」。`
     };
 
     setCustomNodes((current) => [...current, nextNode]);
     setCustomEdges((current) => [...current, nextEdge]);
-    setSelectedNodeId(id);
+    setVariables((current) => inferVariableAdjustments(trimmed, current));
+    setSelectedNodeId("choice");
     setRightTab("properties");
-    setWorkspaceMode("note");
+    setWorkspaceMode("graph");
+    setLeftDetailsOpen(true);
     setCapture("");
     setRound((value) => value + 1);
     setMessages((current) => [
       ...current,
       { role: "user", text: trimmed },
-      { role: "system", text: `已创建原子笔记 ${wikiLink(nextNode.label)}，并与 ${wikiLink(selectedNode.label)} 建立修正链接。` }
+      { role: "system", text: `已把中心议题更新为 ${wikiLink(label)}，并生成关联笔记，右侧数据已刷新。` }
     ]);
-    setLastAction(`已新建 ${wikiLink(nextNode.label)}。`);
+    setLastAction(`中心议题已更新为 ${wikiLink(label)}。`);
+  };
+
+  const chatSend = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    const label = deriveNodeLabel(trimmed);
+    const type = classifyNoteType(trimmed);
+    // 用输入更新中心「转行 AI」议题——中心星球随之改变
+    setNodeOverrides((current) => ({ ...current, ...deriveScenarioOverrides(trimmed, label) }));
+    setScenarioMeta({ active: true, topic: label, input: trimmed, archetypeKey: matchArchetypeKey(trimmed) });
+
+    // 同时生成一颗关联星，连到中心
+    const id = `ai-${customNodes.length + 1}`;
+    const node: ScenarioNode = {
+      id,
+      type,
+      label,
+      shell: 1,
+      weight: 54,
+      confidence: "low",
+      explanation: trimmed
+    };
+    const edge: ScenarioEdge = {
+      source: "choice",
+      target: id,
+      relation: "influences",
+      strength: 0.52,
+      explanation: `AI 推演：围绕中心议题「${label}」延伸。`
+    };
+
+    setCustomNodes((current) => [...current, node]);
+    setCustomEdges((current) => [...current, edge]);
+    setSelectedNodeId("choice");
+    setWorkspaceMode("graph");
+
+    // 关键词轻量联动右侧变量（路径分会即时重排）
+    if (type === "risk") updateVariable("risk", clamp(variables.risk + 8));
+    else if (type === "value") updateVariable("growth", clamp(variables.growth + 6));
+
+    setRound((value) => value + 1);
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: trimmed },
+      { role: "system", text: `已把中心议题更新为「${label}」，右侧路径评分已随之刷新。` }
+    ]);
+    setLastAction(`中心议题已更新为 ${wikiLink(label)}。`);
   };
 
   const injectQuickReply = (reply: string) => {
@@ -354,6 +514,9 @@ export default function ScenarioWorkspace() {
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden bg-[#030308] text-sm text-zinc-400 lg:flex-row">
+      {leftCollapsed ? (
+        <RailBar side="left" title="Vault" onExpand={() => setLeftCollapsed(false)} />
+      ) : (
       <section
         data-testid="vault-sidebar"
         className="flex h-[34vh] w-full min-w-0 flex-col border-b border-zinc-800/60 bg-[#07070e] lg:h-auto lg:w-[21rem] lg:min-w-[19rem] lg:border-b-0 lg:border-r"
@@ -364,7 +527,17 @@ export default function ScenarioWorkspace() {
               <Folder size={16} className="text-amber-500" />
               <h2 className="text-sm font-medium text-zinc-100">ScenarioOS Vault</h2>
             </div>
-            <span className="text-xs text-zinc-600">{allNodes.length} notes</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-600">{allNodes.length} notes</span>
+              <button
+                type="button"
+                onClick={() => setLeftCollapsed(true)}
+                title="收起 Vault"
+                className="flex h-6 w-6 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-100"
+              >
+                <PanelLeftClose size={14} />
+              </button>
+            </div>
           </div>
           <label className="flex items-center gap-2 border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs">
             <Search size={14} className="text-zinc-600" />
@@ -378,6 +551,44 @@ export default function ScenarioWorkspace() {
         </header>
 
         <div className="flex-1 overflow-y-auto px-3 py-4">
+          <section className="mb-4 space-y-3 border border-zinc-900 bg-zinc-950/60 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
+                <MessageSquarePlus size={14} className="text-amber-500" />
+                AI 输入主页面
+              </div>
+              <span className="text-[11px] text-zinc-600">自动写入 Vault</span>
+            </div>
+            <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
+              {messages.slice(-6).map((message, index) => (
+                <div
+                  key={`${message.role}-${index}-${message.text.slice(0, 12)}`}
+                  className={`border px-3 py-2 text-xs leading-relaxed ${
+                    message.role === "user"
+                      ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
+                      : "border-zinc-900 bg-[#08080f] text-zinc-500"
+                  }`}
+                >
+                  {message.text}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <button
+            type="button"
+            onClick={() => setLeftDetailsOpen((open) => !open)}
+            className="mb-4 flex w-full items-center justify-between border border-zinc-800 bg-[#0a0a12] px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:border-amber-500/50 hover:text-amber-100"
+          >
+            <span className="flex items-center gap-2">
+              <Folder size={14} className="text-amber-500" />
+              {leftDetailsOpen ? "收起原子笔记与内容路径" : "展开原子笔记与内容路径"}
+            </span>
+            <ChevronRight size={14} className={leftDetailsOpen ? "rotate-90 transition-transform" : "transition-transform"} />
+          </button>
+
+          {leftDetailsOpen ? (
+            <>
           <section className="mb-5 space-y-2">
             <div className="flex items-center gap-2 px-1 text-xs font-medium text-zinc-500">
               <BookOpen size={13} />
@@ -445,6 +656,12 @@ export default function ScenarioWorkspace() {
               ))}
             </div>
           </section>
+            </>
+          ) : (
+            <section className="border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-4 text-xs leading-relaxed text-zinc-500">
+              原子笔记、内容路径和标签已折叠。点击上方按钮展开，输入区仍会自动写入新原子笔记、更新右侧属性，并触发变量评分重算。
+            </section>
+          )}
         </div>
 
         <form
@@ -457,10 +674,11 @@ export default function ScenarioWorkspace() {
         >
           <div className="text-xs font-medium text-zinc-500">Inbox / 原子笔记</div>
           <div className="flex gap-2">
-            <input
+            <textarea
               ref={inputRef}
               value={capture}
               onChange={(event) => setCapture(event.target.value)}
+              rows={3}
               placeholder="写入一个事实、担忧或反驳..."
               className="min-w-0 flex-1 rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-zinc-300 placeholder:text-zinc-600 focus:border-amber-500/50 focus:outline-none"
             />
@@ -494,6 +712,7 @@ export default function ScenarioWorkspace() {
           </button>
         </form>
       </section>
+      )}
 
       <main className="flex min-h-0 flex-1 flex-col bg-[#040409]">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-900 px-4 py-3">
@@ -504,32 +723,46 @@ export default function ScenarioWorkspace() {
             </div>
             <h1 className="truncate text-lg text-zinc-100">{selectedNode.label}</h1>
           </div>
-          <div className="flex items-center gap-2 overflow-x-auto text-xs">
-            {workspaceModes.map((mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setWorkspaceMode(mode.id)}
-                className={`shrink-0 border px-3 py-1.5 transition-colors ${
-                  workspaceMode === mode.id
-                    ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
-                    : "border-zinc-800 text-zinc-500 hover:text-zinc-200"
-                }`}
+          <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <Link
+                href="/scenario-map"
+                className="flex shrink-0 items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-amber-200 transition-colors hover:border-amber-400/70 hover:bg-amber-500/20"
               >
-                {mode.label}
-              </button>
-            ))}
+                <Orbit size={14} />
+                社会沙盘
+              </Link>
+              <span className="mx-1 h-4 w-px shrink-0 bg-zinc-800" aria-hidden />
+              {workspaceModes.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setWorkspaceMode(mode.id)}
+                  className={`shrink-0 border px-3 py-1.5 transition-colors ${
+                    workspaceMode === mode.id
+                      ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
+                      : "border-zinc-800 text-zinc-500 hover:text-zinc-200"
+                  }`}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <span className="mx-1 h-4 w-px shrink-0 bg-zinc-800" aria-hidden />
+            <UserMenu />
           </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-hidden">
           {workspaceMode === "graph" && (
-            <section data-testid="obsidian-graph" className="relative h-full overflow-hidden bg-[#030308]">
+            <section ref={graphRef} data-testid="obsidian-graph" className="relative h-full overflow-hidden bg-[#030308]">
+              <GraphControlBar onZoomIn={() => zoomGraph(-220)} onZoomOut={() => zoomGraph(220)} onReset={() => zoomGraph(1400)} />
               <ElectronCloud3D
                 edges={allEdges}
                 nodes={allNodes}
                 selectedNodeId={selectedNode.id}
-                highlightedNodeIds={linkedNodeIds}
+                highlightedNodeIds={graphHighlightIds}
+                focusNodeIds={graphFocusIds}
                 onNodeSelect={selectNode}
                 pulseSeed={round}
               />
@@ -561,6 +794,8 @@ export default function ScenarioWorkspace() {
                   ))}
                 </div>
               </div>
+
+              <GraphLegend />
             </section>
           )}
 
@@ -714,8 +949,11 @@ links: ${relatedEdges.length}
         </footer>
       </main>
 
+      {rightCollapsed ? (
+        <RailBar side="right" title="数据" onExpand={() => setRightCollapsed(false)} />
+      ) : (
       <aside className="flex h-[36vh] w-full min-w-0 flex-col border-t border-zinc-800/60 bg-[#07070e] lg:h-auto lg:w-[27rem] lg:min-w-[23rem] lg:border-l lg:border-t-0">
-        <div className="flex overflow-x-auto border-b border-zinc-900 px-2 pt-2 text-xs font-medium">
+        <div className="flex items-center overflow-x-auto border-b border-zinc-900 px-2 pt-2 text-xs font-medium">
           {rightTabs.map((tab) => (
             <button
               key={tab.id}
@@ -728,6 +966,14 @@ links: ${relatedEdges.length}
               {tab.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setRightCollapsed(true)}
+            title="收起数据面板"
+            className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-100"
+          >
+            <PanelRightClose size={14} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5">
@@ -921,6 +1167,9 @@ links: ${relatedEdges.length}
           )}
         </div>
       </aside>
+      )}
+
+      <WorkspaceChatDrawer side="left" messages={messages} onSend={chatSend} />
     </div>
   );
 }
