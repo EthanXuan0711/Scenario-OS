@@ -1,4 +1,4 @@
-# ScenarioOS · 个人决策推演系统（v0.4）
+# ScenarioOS · 个人决策推演系统（v0.5）
 
 把一个真实困境放上桌面，系统把它拆成 **事件 / 角色 / 平台 / 风险 / 结果** 等维度，
 在一个**旋臂银河**里把人生节点可视化，输入决策 → 相关节点飞出汇聚成一条**决策路径**，
@@ -9,17 +9,23 @@
 
 ---
 
-## 一、版本状况（v0.4）
+## 一、版本状况（v0.5）
 
 | 项 | 说明 |
 |---|---|
-| 版本 | **v0.4**（玄学八字命盘强化 + 命理合规译码 + 回填深化 + 全局视觉统一） |
+| 版本 | **v0.5**（聊天首页重构 + 30 秒首问流 + /api/deduce 契约端点 + 人生 K 线双图） |
 | 框架 | Next.js 15（App Router）· React 19 · TypeScript 5.7 · Tailwind 3.4 |
 | 3D | three.js 0.184 · @react-three/fiber 9 · drei 10 · postprocessing 3（Bloom/Vignette/Noise） |
 | 动效 | gsap 3 + @gsap/react（命盘罗盘自转 / 五行相生能量流 / 入场时间线）· framer-motion 11（剧场） |
-| 图表 | recharts 3（人生 K 线蜡烛图） |
+| 图表 | recharts 3（人生大 K 线 + 事件 K 线） |
 | 其他 | @xyflow/react 12（实验）· zustand 5 · lucide-react |
-| 构建校验 | `npm run typecheck` 0 错误；`npm run build` 7 页全部通过 |
+| 构建校验 | `npm run verify`（= `next build`，含类型检查）通过；7 页全部编译 |
+
+### v0.5 相对 v0.4 的关键升级
+1. **聊天首页重构为「对话优先」**（`ChatHome.tsx`，PRD §4「简化冷启动」+ §5.1 P0）：弃用旧 Obsidian 三栏工作台，改为居中对话 + **30 秒首次体验流**——3 问（纠结什么 / 最怕什么 / 以前怎么做）→ 推演中动画 → **首次洞察报告**（决策画像 + 两条路径 + 可验证问题 + 复制分享文案）。报告自动写入 `scenarioBridge`（推演页接续）与推演历史（档案可回填）。首页包体 **210 kB → 7 kB**。
+2. **最小 `/api/deduce` 契约端点**（`app/api/deduce/route.ts`，PRD §5.3）：`POST DeductionInput → DeductionResult`（当前规则引擎 mock）。`runDeduction()` 置 `NEXT_PUBLIC_USE_DEDUCE_API=1` 即走接口、异常自动回退本地——验证「规则引擎 ↔ 接口切换前端零改动」。
+3. **人生 K 线双图**（`EventKLine.tsx`，PRD §5.10）：档案页新增「人生大 K 线 / 事件 K 线」切换。**事件 K 线由真实推演历史 + 回填结果生成**——每根蜡烛 = 一次推演，命中/偏差/错误决定涨跌与颜色，连成「判断命中势能」走势，支持 30/90/365 天/全部窗口。
+4. **`npm run verify` 脚本**：`next build` 顺序，消除干净环境直跑 `tsc` 因 `.next/types` 缺失的误判。
 
 ### v0.4 相对 v0.3 的关键升级
 1. **八字分析引擎**（`archive/bazi.ts`）：四柱排盘 + 藏干 + 十神 + 纳音 + 五行力量分布 + 旺衰（身强/均衡/身弱）+ 喜用神，确定性纯前端计算（月柱/真太阳时为近似）。
@@ -56,7 +62,7 @@ npm run typecheck  # 应为 0 错误
 ### 三导航（路由）
 | 导航 | 路由 | 入口组件 | 功能 |
 |---|---|---|---|
-| **聊天** | `/` | `ScenarioWorkspace` | 工作台：原子笔记 Vault + 局部图谱(3D) + Markdown/Canvas + AI 抽屉 + 变量面板 + 登录/档案 |
+| **聊天** | `/` | `ChatHome` | 对话首页：30 秒首问流（3 问 → 推演 → 首次洞察报告）+ 可折叠「记忆」抽屉（旧 `ScenarioWorkspace` 工作台保留备用，未挂载） |
 | **推演** | `/scenario-map` | `ScenarioGalaxy` | 旋臂银河 → 决策路径（入场剧场 + 点击详情 + 条件折叠） |
 | **档案** | `/archive` | `Archive` | 命盘雷达 + 命中率仪表盘 + 推演历史回填 |
 | (退役) | `/cockpit` | — | 重定向到 `/scenario-map` |
@@ -74,7 +80,8 @@ docs/
 src/
 ├── app/                      # 路由层
 │   ├── layout.tsx            # 根布局 + 全局挂载 CosmicNav（三导航）
-│   ├── page.tsx              # `/`             → ScenarioWorkspace（聊天）
+│   ├── page.tsx              # `/`             → ChatHome（聊天首页 / 首问流）
+│   ├── api/deduce/route.ts   # ★ POST 推演契约端点：DeductionInput → DeductionResult（规则引擎 mock，后端换 LLM 零改动）
 │   ├── scenario-map/page.tsx # `/scenario-map` → ScenarioGalaxy（推演）
 │   ├── archive/page.tsx      # `/archive`      → Archive（档案）
 │   └── cockpit/page.tsx      # `/cockpit`      → 重定向到 /scenario-map（已退役）
@@ -83,6 +90,7 @@ src/
 ├── data/scenarioOS.ts        # 种子数据：图谱节点/连线、6 决策变量、4 路径、议会、时间线
 │
 └── components/
+    ├── ChatHome.tsx          # ★ 聊天首页：30 秒 3 问首问流 → 推演 → 首次洞察报告（联动桥接 + 推演历史）+ 记忆抽屉
     ├── CosmicNav.tsx         # ★ 统一三导航（聊天/推演/档案）浮动药丸
     │
     │  ── 共享层 ──
@@ -114,7 +122,8 @@ src/
     │   ├── bazi.ts             # ★ 八字分析引擎：四柱/藏干/十神/纳音/五行力量/旺衰/喜用神 + interpretBazi()(符号→现实变量译码) + BAZI_DISCLAIMER
     │   ├── MetaphysicsPanel.tsx# ★ 五行命盘工作台：八卦/五行自转罗盘(GSAP) + 五行相生能量流 + 四柱 + 命理译码(可验证问题)
     │   ├── baziVerifyStore.ts  # 命理可验证问题的 30 天回填(应验/部分/未发生，localStorage + useBaziVerify)
-    │   ├── LifeKLineChart.tsx  # 人生 K 线蜡烛图(recharts)：大运轨道 + MA + 流年详批 + 缩放刷
+    │   ├── LifeKLineChart.tsx  # 人生大 K 线蜡烛图(recharts)：大运轨道 + MA + 流年详批 + 缩放刷
+    │   ├── EventKLine.tsx      # ★ 事件 K 线(recharts)：真实推演历史 + 回填 → 命中势能蜡烛 + 累积线 + 30/90/365 窗口
     │   └── klineTypes.ts       # K 线类型 + 演示数据生成 + MA 计算
     │
     │  ── 聊天/工作台 ──
@@ -152,20 +161,21 @@ src/
                                    档案：命中率 = (命中×1 + 偏差×0.5) / 已验证
 ```
 
-**后端只需实现 `POST /api/deduce`：入参 `DeductionInput` → 回参 `DeductionResult`**（见 `deduction/deductionTypes.ts`），前端零改动对接。
+**`POST /api/deduce` 已落地**（当前规则引擎 mock）：入参 `DeductionInput` → 回参 `DeductionResult`（见 `deduction/deductionTypes.ts`）。置环境变量 `NEXT_PUBLIC_USE_DEDUCE_API=1` 即让 `runDeduction()` 走接口、异常自动回退本地；后端把端点内部换成真实 LLM 即可，前端零改动。
 
 ---
 
 ## 五、部署
 
 ```bash
+npm run verify     # = next build（含类型检查），干净校验，勿与 dev 同跑共用 .next
 # GitHub（版本管理：提交 + 打标签 + 推送）
-git add -A && git commit -m "ScenarioOS v0.4" && git tag v0.4 && git push origin main --tags
+git add -A && git commit -m "ScenarioOS v0.5" && git tag v0.5 && git push origin main --tags
 # Vercel：导入仓库 → Framework 选 Next.js → 默认 next build
 ```
 
-> 源码快照：`Desktop/源码/ScenarioOS-源码-v0.4.zip`（由 `git archive` 导出，仅含受版本管理的源码，不含 node_modules/.next）。
+> 源码快照：`Desktop/源码/ScenarioOS-源码-v0.5.zip`（由 `git archive` 导出，仅含受版本管理的源码，不含 node_modules/.next）。
 
 ---
 
-ScenarioOS v0.4 — 让每一次重大人生决策，都能先在银河里推演一遍，再被现实验证和修正。
+ScenarioOS v0.5 — 让每一次重大人生决策，都能先在银河里推演一遍，再被现实验证和修正。

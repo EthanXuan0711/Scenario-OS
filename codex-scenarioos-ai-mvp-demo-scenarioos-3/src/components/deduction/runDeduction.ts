@@ -10,18 +10,25 @@ import { ruleBasedDeduction } from "./ruleEngine";
 export type RunOptions = { simulateLatencyMs?: number };
 
 export async function runDeduction(input: DeductionInput, opts: RunOptions = {}): Promise<DeductionResult> {
-  // ===== 后端接入点（将来替换为）=====
-  // const res = await fetch("/api/deduce", {
-  //   method: "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body: JSON.stringify(input)
-  // });
-  // if (!res.ok) throw new Error(`推演服务异常: ${res.status}`);
-  // return (await res.json()) as DeductionResult;
-  // ===================================
-
   if (opts.simulateLatencyMs && opts.simulateLatencyMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, opts.simulateLatencyMs));
   }
+
+  // 后端接入点：置 NEXT_PUBLIC_USE_DEDUCE_API=1 即走 /api/deduce（当前为规则引擎 mock，
+  // 后端换成真实 LLM 后契约不变）。接口异常自动回退本地规则引擎，保证演示不中断。
+  // —— 验证「前端在规则引擎 ↔ 接口之间切换，UI 零改动」（PRD §5.3 验收）。
+  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_USE_DEDUCE_API === "1") {
+    try {
+      const res = await fetch("/api/deduce", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (res.ok) return (await res.json()) as DeductionResult;
+    } catch {
+      // 网络/服务异常 → 回退本地兜底
+    }
+  }
+
   return ruleBasedDeduction(input);
 }

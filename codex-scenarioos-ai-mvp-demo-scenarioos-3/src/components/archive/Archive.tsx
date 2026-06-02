@@ -20,6 +20,11 @@ const LifeKLineChart = dynamic(() => import("./LifeKLineChart"), {
   loading: () => <div className="flex h-[360px] items-center justify-center text-xs text-zinc-600 sm:h-[420px] lg:h-[460px]">正在生成生命 K 线…</div>
 });
 
+const EventKLine = dynamic(() => import("./EventKLine"), {
+  ssr: false,
+  loading: () => <div className="flex h-[300px] items-center justify-center text-xs text-zinc-600 sm:h-[360px]">正在生成事件 K 线…</div>
+});
+
 export default function Archive() {
   const scenario = useSharedScenario();
   const hit = useHitRate();
@@ -263,8 +268,9 @@ function StatPill({ label, value, color }: { label: string; value: number; color
   );
 }
 
-// ─── 真实人生K线（recharts 蜡烛图，移植自 life-kline）───────────
+// ─── 人生K线双图（大K线：一生阶段走势；事件K线：真实推演/回填走势）──────
 function RealLifeKLine({ user }: { user: { birth?: { year?: number; month?: number; day?: number }; nickname?: string } | null }) {
+  const [view, setView] = useState<"macro" | "event">("macro");
   const currentYear = new Date().getFullYear();
   const birthYear = user?.birth?.year ?? 1995;
   const currentAge = currentYear - birthYear + 1;
@@ -272,19 +278,37 @@ function RealLifeKLine({ user }: { user: { birth?: { year?: number; month?: numb
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <div className="font-mono text-[11px] text-zinc-600">
-          {user?.birth?.year ? `${birthYear}年生 · 当前 ${currentAge} 岁 · 点击K线查看流年详批` : "演示数据 · 填写出生年份后生成个人命运K线"}
+      {/* 双图切换 */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1 rounded-xl border border-white/10 bg-black/30 p-1">
+          {([["macro", "人生大K线"], ["event", "事件K线"]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setView(k)}
+              className="rounded-lg px-3 py-1.5 text-[12px] font-medium transition-all"
+              style={{
+                background: view === k ? "rgba(240,200,90,0.14)" : "transparent",
+                color: view === k ? "#f0c85a" : "#9ca3af",
+                boxShadow: view === k ? "0 0 12px rgba(240,200,90,0.18)" : undefined,
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="rounded-full border border-amber-400/20 px-2.5 py-1 font-mono text-[10px] text-amber-300/60">
-          ✦ 接入LLM后生成真实八字K线
+        <div className="font-mono text-[10px] text-zinc-600">
+          {view === "macro"
+            ? user?.birth?.year ? `${birthYear}年生 · 当前 ${currentAge} 岁 · 点击K线看流年` : "演示数据 · 填写出生年份后生成"
+            : "由真实推演历史 + 回填结果生成"}
         </div>
       </div>
-      <LifeKLineChart
-        data={klineData}
-        currentAge={currentAge}
-        birthYear={birthYear}
-      />
+
+      {view === "macro" ? (
+        <LifeKLineChart data={klineData} currentAge={currentAge} birthYear={birthYear} />
+      ) : (
+        <EventKLine />
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import ScenarioWorkspace from "../components/ScenarioWorkspace";
+import ChatHome from "../components/ChatHome";
 
 export default function HomePage() {
-  return <ScenarioWorkspace />;
+  return <ChatHome />;
 }
