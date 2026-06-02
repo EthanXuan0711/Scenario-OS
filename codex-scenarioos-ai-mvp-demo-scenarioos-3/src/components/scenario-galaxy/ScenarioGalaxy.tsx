@@ -98,12 +98,13 @@ export default function ScenarioGalaxy() {
 
       {/* 标题 */}
       <div className="pointer-events-none absolute left-6 top-14 z-20">
-        <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+        <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.24em] text-amber-200/45">Deduction Galaxy</div>
+        <div className="flex items-center gap-2 font-mystic text-lg font-semibold text-zinc-50">
           <span className="relative flex h-2.5 w-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/70" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" style={{ boxShadow: "0 0 10px rgba(240,200,90,0.7)" }} />
           </span>
-          ScenarioOS · 社会沙盘
+          推演 · 决策星系
         </div>
         <div className="mt-1.5 max-w-[70vw] pl-5 font-mono text-[11px] text-zinc-500">
           {active ? `决策路径：「${topic}」 · 点击节点看评分/权重` : "银河 · 元素独立漂移 · 点击星球看详情 / 输入决策汇聚成路径"}
@@ -111,9 +112,10 @@ export default function ScenarioGalaxy() {
       </div>
 
       {/* 条件面板（可折叠） */}
-      <div className="absolute left-6 top-[120px] z-20 w-[248px] max-w-[calc(100vw-3rem)] rounded-2xl border border-white/10 p-3 backdrop-blur-md" style={{ background: "rgba(10,12,24,0.6)" }}>
-        <button type="button" onClick={() => setCondCollapsed((v) => !v)} className="flex w-full items-center justify-between text-[11px] text-zinc-400 transition-colors hover:text-zinc-200">
-          <span>条件 · 新增即生成星球</span>
+      <div className="mystic-card absolute left-6 top-[124px] z-20 w-[248px] max-w-[calc(100vw-3rem)] p-3">
+        <span className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/35 to-transparent" />
+        <button type="button" onClick={() => setCondCollapsed((v) => !v)} className="flex w-full items-center justify-between text-[11px] text-zinc-300 transition-colors hover:text-amber-200">
+          <span className="flex items-center gap-1.5"><span className="text-amber-300/70">✦</span> 条件 · 新增即生成星球</span>
           <span className="flex items-center gap-2">
             <span className="font-mono text-zinc-600">{conditions.length}</span>
             <span className={`inline-block transition-transform duration-200 ${condCollapsed ? "" : "rotate-90"}`}>▸</span>
@@ -160,19 +162,25 @@ export default function ScenarioGalaxy() {
       {/* 推演输入 */}
       <form
         onSubmit={submit}
-        className="absolute bottom-6 left-1/2 z-20 flex w-[min(620px,calc(100vw-40px))] -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/12 px-3 py-2 backdrop-blur-md"
-        style={{ background: "rgba(10,12,24,0.82)" }}
+        className="absolute bottom-6 left-1/2 z-20 flex w-[min(620px,calc(100vw-40px))] -translate-x-1/2 items-center gap-2 overflow-hidden rounded-2xl px-3 py-2 backdrop-blur-md"
+        style={{ background: "rgba(10,8,22,0.85)", border: "1px solid rgba(253,230,138,0.18)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 16px 44px -20px rgba(0,0,0,0.8)" }}
       >
+        <span className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent" />
+        <span className="pl-1 text-amber-300/60">✦</span>
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="输入你的决策 / 担忧，相关元素将飞出汇聚成一条决策路径…"
-          className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
         />
-        <button type="submit" className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-medium text-zinc-950 transition-colors hover:bg-amber-400">
+        <button
+          type="submit"
+          className="rounded-lg px-5 py-1.5 text-sm font-semibold text-zinc-950 transition-all hover:brightness-110 active:scale-95"
+          style={{ background: "linear-gradient(135deg, #f5d77a, #e7c766)", boxShadow: "0 0 18px rgba(231,199,102,0.4)" }}
+        >
           推演
         </button>
-        <button type="button" onClick={restore} className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:text-zinc-200">
+        <button type="button" onClick={restore} className="rounded-lg border border-white/12 px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:border-white/25 hover:text-zinc-200">
           还原
         </button>
       </form>

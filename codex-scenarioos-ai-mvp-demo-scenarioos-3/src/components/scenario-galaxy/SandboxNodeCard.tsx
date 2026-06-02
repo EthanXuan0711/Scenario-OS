@@ -17,11 +17,11 @@ type Props = {
 };
 
 const glassStyle: CSSProperties = {
-  background: "rgba(10, 12, 24, 0.74)",
-  border: "1px solid rgba(255, 255, 255, 0.12)",
+  background: "rgba(10, 8, 22, 0.82)",
+  border: "1px solid rgba(253, 230, 138, 0.16)",
   backdropFilter: "blur(18px)",
   WebkitBackdropFilter: "blur(18px)",
-  boxShadow: "0 18px 60px rgba(0,0,0,0.5), 0 0 36px rgba(90,110,200,0.16)"
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 60px rgba(0,0,0,0.55), 0 0 40px rgba(231,199,102,0.1)"
 };
 
 export default function SandboxNodeCard({ node, variables, topic, onClose }: Props) {
@@ -68,7 +68,7 @@ function CardBody({ node, variables, topic, onClose }: { node: SandboxNode; vari
         </button>
       </div>
 
-      <h3 className="mb-1.5 text-xl font-medium text-zinc-50">{node.label}</h3>
+      <h3 className="mb-1.5 font-mystic text-xl font-semibold text-zinc-50">{node.label}</h3>
       <p className="mb-4 text-[13px] leading-relaxed text-zinc-400">{description}</p>
 
       <div className="mb-2 grid grid-cols-2 gap-3">
