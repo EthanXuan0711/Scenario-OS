@@ -5,7 +5,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"]
+        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        mystic: ["Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", "Georgia", "ui-serif", "serif"]
       },
       colors: {
         void: "#060913",

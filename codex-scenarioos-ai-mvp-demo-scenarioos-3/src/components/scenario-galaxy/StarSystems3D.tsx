@@ -1,32 +1,36 @@
 "use client";
 
-// 社会沙盘 · 5 维度恒星系 → 决策路径星系（R3F 版）。
-// 运动：布朗运动（随机游走，不再固定环绕）。节点/恒星可点击 → 详情卡（评分/权重/内容）。
-// 共享场景激活时：从 5 系各抽出节点 → 中心重组为决策路径星系；新增条件 → 生成新星球。
+// 社会沙盘 · 银河（均匀打散）→ 决策路径。
+// 默认：大量原子元素均匀分布、各自独立、平滑漂移（无聚集、无固定环绕）。
+// 输入问题 / 加入条件：相关元素飞出、汇聚到中心连成一条有联系的路径（带连线）。
+// 标签默认隐藏，点击节点才显示；每颗星球颜色都不同（多彩低饱和）。
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html, OrbitControls, Stars } from "@react-three/drei";
-import { Bloom, EffectComposer } from "@react-three/postprocessing";
+import { Billboard, Html, OrbitControls, Sparkles, Stars } from "@react-three/drei";
+import { Bloom, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
 import { useSharedScenario, type SharedScenario } from "../scenarioBridge";
 import { galaxyLabelsFor } from "../deriveScenario";
 import type { NodeType } from "./galaxyTypes";
 import type { SandboxNode } from "./sandboxScoring";
 
-type Cat = { type: NodeType; name: string; color: string; pool: string[] };
-const CATS: Cat[] = [
-  { type: "event", name: "事件", color: "#e7c766", pool: ["突发事件", "政策变动", "舆论爆点", "行业拐点", "资本异动", "技术突破"] },
-  { type: "actor", name: "角色", color: "#6ea8ff", pool: ["关键人物", "家人", "挚友", "对手", "投资人", "导师"] },
-  { type: "platform", name: "平台", color: "#a78bfa", pool: ["公司", "平台", "社群", "媒体", "机构", "市场"] },
-  { type: "risk", name: "风险", color: "#f0556a", pool: ["现金流", "健康", "关系", "时间", "声誉", "竞争"] },
-  { type: "outcome", name: "结果", color: "#34d399", pool: ["破圈成功", "稳步增长", "原地踏步", "及时止损", "意外转机", "长期主义"] }
-];
+const N_NODES = 150; // 银河节点总数
+const GAL_R = 58; // 银河盘半径
+const GAL_Y = 14; // 银河盘半厚
+const PATH_R = 13; // 决策路径汇聚半径
+const DRIFT_AMP = 2.4; // 漂移幅度（平滑、低频）
+const ARMS = 3; // 旋臂数量
+const SPIRAL_TWIST = 3.6; // 旋臂缠绕强度
 
-const CLOUD = 11; // 每个恒星系的节点云半径
-const ACCEL = 2.6; // 布朗运动随机加速度
-const DAMP = 0.9; // 速度阻尼
-const MAXV = 7; // 最大游走速度
+const TYPES: NodeType[] = ["event", "actor", "platform", "risk", "outcome"];
+const POOLS: Record<NodeType, string[]> = {
+  event: ["突发事件", "政策变动", "舆论爆点", "行业拐点", "资本异动", "技术突破", "周期转折", "机会窗口"],
+  actor: ["关键人物", "家人", "挚友", "对手", "投资人", "导师", "同行", "决策者"],
+  platform: ["公司", "平台", "社群", "媒体", "机构", "市场", "渠道", "生态"],
+  risk: ["现金流", "健康", "关系", "时间", "声誉", "竞争", "合规", "情绪"],
+  outcome: ["破圈成功", "稳步增长", "原地踏步", "及时止损", "意外转机", "长期主义", "复利积累", "重新洗牌"]
+};
 
 function mulberry32(a: number) {
   return function () {
@@ -38,75 +42,204 @@ function mulberry32(a: number) {
   };
 }
 
-type SystemDef = { ci: number; type: NodeType; name: string; color: string; center: THREE.Vector3 };
-type OrbiterDef = {
+const _c = new THREE.Color();
+// 多彩低饱和：全色相 + 受控饱和/明度（融合墨蓝/墨绿/深紫/莫兰迪的沉静质感）
+function diverseColor(rng: () => number, bright = false) {
+  _c.setHSL(rng(), bright ? 0.5 + rng() * 0.25 : 0.32 + rng() * 0.3, bright ? 0.6 + rng() * 0.12 : 0.46 + rng() * 0.2);
+  return "#" + _c.getHexString();
+}
+
+type Drift = { a1: number; f1: number; p1: number; a2: number; f2: number; p2: number };
+function mkDrift(rng: () => number): Drift {
+  return {
+    a1: DRIFT_AMP * (0.6 + rng() * 0.8),
+    f1: 0.08 + rng() * 0.18,
+    p1: rng() * Math.PI * 2,
+    a2: DRIFT_AMP * (0.3 + rng() * 0.5),
+    f2: 0.16 + rng() * 0.26,
+    p2: rng() * Math.PI * 2
+  };
+}
+const driftAxis = (d: Drift, t: number) => d.a1 * Math.sin(t * d.f1 + d.p1) + d.a2 * Math.sin(t * d.f2 + d.p2);
+const smoothstep = (x: number) => x * x * (3 - 2 * x);
+
+// 径向渐变贴图（星云软云团）
+function makeRadialTexture(hex: string) {
+  const size = 256;
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = size;
+  const ctx = cv.getContext("2d");
+  if (ctx) {
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, hex + "cc");
+    g.addColorStop(0.35, hex + "55");
+    g.addColorStop(1, hex + "00");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// 体积感星云背景（多片加色软云团，整体缓慢旋转）
+function Nebula() {
+  const group = useRef<THREE.Group>(null);
+  const clouds = useMemo(() => {
+    const rng = mulberry32(424242);
+    const palette = ["#2a3a7a", "#3a2a6a", "#1f5a5a", "#5a2a4a", "#243a8a", "#402a64"];
+    return Array.from({ length: 8 }, (_, i) => ({
+      tex: makeRadialTexture(palette[i % palette.length]),
+      pos: [(rng() - 0.5) * 190, (rng() - 0.5) * 70, (rng() - 0.5) * 190 - 30] as [number, number, number],
+      rot: [rng() * Math.PI, rng() * Math.PI, rng() * Math.PI] as [number, number, number],
+      size: 90 + rng() * 110,
+      opacity: 0.1 + rng() * 0.14
+    }));
+  }, []);
+  useFrame((_, delta) => {
+    if (group.current) group.current.rotation.y += delta * 0.008;
+  });
+  return (
+    <group ref={group}>
+      {clouds.map((c, i) => (
+        <mesh key={i} position={c.pos} rotation={c.rot}>
+          <planeGeometry args={[c.size, c.size]} />
+          <meshBasicMaterial map={c.tex} transparent opacity={c.opacity} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// 深空渐变天幕（巨大内壁球，竖向渐变营造空间纵深）
+function makeSkyTexture() {
+  const cv = document.createElement("canvas");
+  cv.width = 8;
+  cv.height = 256;
+  const ctx = cv.getContext("2d");
+  if (ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, "#0b0a1e");
+    g.addColorStop(0.4, "#05060f");
+    g.addColorStop(0.72, "#080612");
+    g.addColorStop(1, "#120a24");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 8, 256);
+  }
+  return new THREE.CanvasTexture(cv);
+}
+
+function DeepSpace() {
+  const tex = useMemo(makeSkyTexture, []);
+  return (
+    <mesh scale={600}>
+      <sphereGeometry args={[1, 32, 32]} />
+      <meshBasicMaterial map={tex} side={THREE.BackSide} depthWrite={false} toneMapped={false} fog={false} />
+    </mesh>
+  );
+}
+
+// 明亮星系核（中心隆起 + 多层光晕 Billboard）
+function GalacticCore() {
+  const halo = useMemo(() => makeRadialTexture("#ffe7b8"), []);
+  return (
+    <group>
+      <Billboard>
+        <mesh>
+          <planeGeometry args={[44, 44]} />
+          <meshBasicMaterial map={halo} transparent opacity={0.5} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+        </mesh>
+      </Billboard>
+      <Billboard>
+        <mesh>
+          <planeGeometry args={[18, 18]} />
+          <meshBasicMaterial map={halo} transparent opacity={0.72} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+        </mesh>
+      </Billboard>
+      <mesh>
+        <sphereGeometry args={[2, 24, 24]} />
+        <meshBasicMaterial color="#fff4d6" toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+type GNode = {
   id: string;
-  ci: number;
   type: NodeType;
   color: string;
   importance: number;
   idleLabel: string;
   radius: number;
-  homeOffset: THREE.Vector3;
+  home: THREE.Vector3;
+  dx: Drift;
+  dy: Drift;
+  dz: Drift;
   isCondition: boolean;
 };
 
-function buildSystems(): SystemDef[] {
-  return CATS.map((cat, ci) => {
-    const ang = (ci / 5) * Math.PI * 2 - Math.PI / 2;
-    return { ci, type: cat.type, name: cat.name, color: cat.color, center: new THREE.Vector3(Math.cos(ang) * 46, ci % 2 ? 9 : -9, Math.sin(ang) * 46) };
-  });
+// 旋臂银河分布：部分落入中心核球（bulge），其余沿 3 条对数旋臂缠绕散布
+function spiralHome(rng: () => number, innerBias = false): THREE.Vector3 {
+  if (!innerBias && rng() < 0.16) {
+    const r = GAL_R * 0.15 * Math.cbrt(rng());
+    const a = rng() * Math.PI * 2;
+    const ph = Math.acos(2 * rng() - 1);
+    return new THREE.Vector3(r * Math.sin(ph) * Math.cos(a), r * Math.cos(ph) * 0.7, r * Math.sin(ph) * Math.sin(a));
+  }
+  const arm = Math.floor(rng() * ARMS);
+  const tt = Math.pow(rng(), innerBias ? 1.4 : 0.72);
+  const rad = 6 + tt * (GAL_R - 6) * (innerBias ? 0.6 : 1);
+  const baseAng = arm * ((Math.PI * 2) / ARMS) + tt * SPIRAL_TWIST;
+  const scatter = (rng() - 0.5) * 0.55 * (1 - tt * 0.4) + (rng() - 0.5) * 0.1;
+  const ang = baseAng + scatter;
+  const thin = GAL_Y * (1 - tt * 0.4) * 0.6;
+  return new THREE.Vector3(Math.cos(ang) * rad, (rng() - 0.5) * 2 * thin, Math.sin(ang) * rad);
 }
 
-function randomInSphere(rng: () => number, R: number) {
-  const r = R * Math.cbrt(rng());
-  const th = rng() * Math.PI * 2;
-  const ph = Math.acos(2 * rng() - 1);
-  return new THREE.Vector3(r * Math.sin(ph) * Math.cos(th), r * Math.sin(ph) * Math.sin(th) * 0.7, r * Math.cos(ph));
-}
-
-function buildOrbiters(conditions: SharedScenario["conditions"]): OrbiterDef[] {
+function buildNodes(conditions: SharedScenario["conditions"]): GNode[] {
   const rng = mulberry32(20260601);
-  const tmp = new THREE.Color();
-  const hsl = { h: 0, s: 0, l: 0 };
-  const vary = (hex: string) => {
-    tmp.set(hex);
-    tmp.getHSL(hsl);
-    tmp.setHSL((hsl.h + (rng() - 0.5) * 0.1 + 1) % 1, Math.min(1, hsl.s), Math.max(0.4, Math.min(0.8, hsl.l + (rng() - 0.5) * 0.3)));
-    return "#" + tmp.getHexString();
-  };
-  const list: OrbiterDef[] = [];
-  CATS.forEach((cat, ci) => {
-    for (let i = 0; i < 6; i++) {
-      list.push({
-        id: `o${ci}-${i}`,
-        ci,
-        type: cat.type,
-        color: vary(cat.color),
-        importance: 0.45 + rng() * 0.45,
-        idleLabel: cat.pool[i % cat.pool.length],
-        radius: 0.5 + rng() * 0.55,
-        homeOffset: randomInSphere(rng, CLOUD),
-        isCondition: false
-      });
-    }
-  });
+  const list: GNode[] = [];
+  for (let i = 0; i < N_NODES; i++) {
+    const type = TYPES[i % TYPES.length];
+    list.push({
+      id: `n${i}`,
+      type,
+      color: diverseColor(rng),
+      importance: 0.4 + rng() * 0.5,
+      idleLabel: POOLS[type][i % POOLS[type].length],
+      radius: 0.42 + rng() * 0.66,
+      home: spiralHome(rng),
+      dx: mkDrift(rng),
+      dy: mkDrift(rng),
+      dz: mkDrift(rng),
+      isCondition: false
+    });
+  }
   (conditions ?? []).forEach((c) => {
-    const found = CATS.findIndex((cat) => cat.type === c.type);
-    const ci = found >= 0 ? found : 0;
+    const type = (TYPES.includes(c.type as NodeType) ? c.type : "event") as NodeType;
     list.push({
       id: `oc-${c.id}`,
-      ci,
-      type: CATS[ci].type,
-      color: "#ffffff",
-      importance: 0.72,
+      type,
+      color: diverseColor(rng, true),
+      importance: 0.78,
       idleLabel: c.label,
-      radius: 0.78,
-      homeOffset: randomInSphere(rng, CLOUD),
+      radius: 0.85,
+      home: spiralHome(rng, true),
+      dx: mkDrift(rng),
+      dy: mkDrift(rng),
+      dz: mkDrift(rng),
       isCondition: true
     });
   });
   return list;
+}
+
+// 斐波那契球面点（决策路径汇聚目标）
+function fibPoint(k: number, n: number, R: number) {
+  const t = (k + 0.5) / n;
+  const phi = Math.acos(1 - 2 * t);
+  const th = k * 2.399963229;
+  return new THREE.Vector3(R * Math.sin(phi) * Math.cos(th), R * Math.cos(phi) * 0.8, R * Math.sin(phi) * Math.sin(th));
 }
 
 type SceneProps = {
@@ -119,50 +252,72 @@ function Scene({ scenario, onSelect, selectedId }: SceneProps) {
   const active = Boolean(scenario?.active);
   const { camera } = useThree();
 
-  const systems = useMemo(buildSystems, []);
   const conditionsKey = JSON.stringify(scenario?.conditions ?? []);
-  const orbiters = useMemo(() => buildOrbiters(scenario?.conditions), [conditionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nodes = useMemo(() => buildNodes(scenario?.conditions), [conditionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 重组：抽取节点、相似标签、中心目标位
+  // 选出"相关"节点 → 汇聚为路径；其余继续独立漂移
   const recombine = useMemo(() => {
-    const pools = galaxyLabelsFor(scenario?.input ?? "", scenario?.topic ?? "");
-    const labels = orbiters.map((o) => o.idleLabel);
-    const extracted: boolean[] = orbiters.map(() => false);
-    const targets = orbiters.map(() => new THREE.Vector3());
+    const labels = nodes.map((n) => n.idleLabel);
+    const isPath = nodes.map(() => false);
+    const targets = nodes.map(() => new THREE.Vector3());
+    const order: number[] = [];
     if (active) {
-      const picked: number[] = [];
-      systems.forEach((sys) => {
-        const idxs = orbiters.map((o, i) => (o.ci === sys.ci ? i : -1)).filter((i) => i >= 0).slice(0, 3);
-        idxs.forEach((i) => picked.push(i));
-      });
+      const pools = galaxyLabelsFor(scenario?.input ?? "", scenario?.topic ?? "");
+      const want: Record<NodeType, number> = { event: 2, actor: 3, platform: 1, risk: 2, outcome: 2 };
       const counters: Record<string, number> = {};
-      picked.forEach((i) => {
-        extracted[i] = true;
-        const type = orbiters[i].type;
-        const pool = pools[type] ?? [labels[i]];
-        const c = counters[type] ?? 0;
-        counters[type] = c + 1;
-        labels[i] = pool[c % pool.length];
+      // 条件节点优先纳入路径
+      nodes.forEach((n, i) => {
+        if (n.isCondition) order.push(i);
       });
-      picked.forEach((i, k) => {
-        const t = (k + 0.5) / picked.length;
-        const phi = Math.acos(1 - 2 * t);
-        const th = k * 2.399;
-        targets[i].set(13 * Math.sin(phi) * Math.cos(th), 13 * Math.cos(phi) * 0.75, 13 * Math.sin(phi) * Math.sin(th));
+      TYPES.forEach((type) => {
+        let need = want[type];
+        for (let i = 0; i < nodes.length && need > 0; i++) {
+          if (nodes[i].type === type && !nodes[i].isCondition && !order.includes(i)) {
+            order.push(i);
+            need -= 1;
+          }
+        }
       });
+      order.forEach((idx) => {
+        isPath[idx] = true;
+        const type = nodes[idx].type;
+        if (!nodes[idx].isCondition) {
+          const pool = pools[type] ?? [labels[idx]];
+          const c = counters[type] ?? 0;
+          counters[type] = c + 1;
+          labels[idx] = pool[c % pool.length];
+        }
+      });
+      order.forEach((idx, k) => targets[idx].copy(fibPoint(k, order.length, PATH_R)));
     }
-    return { labels, extracted, targets };
-  }, [orbiters, systems, scenario, active]);
+    return { labels, isPath, targets, order };
+  }, [nodes, scenario, active]);
+
+  // 路径连线几何（按 order 顺序串成一条折线）
+  const edgeGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const pts: number[] = [];
+    const { order, targets } = recombine;
+    for (let k = 0; k < order.length - 1; k++) {
+      const a = targets[order[k]];
+      const b = targets[order[k + 1]];
+      pts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    }
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pts.length ? pts : [0, 0, 0, 0, 0, 0], 3));
+    return g;
+  }, [recombine]);
 
   const combineT = useRef(0);
-  const joff = useRef<THREE.Vector3[]>([]);
-  const jvel = useRef<THREE.Vector3[]>([]);
-  const starGroupRefs = useRef<(THREE.Group | null)[]>([]);
-  const starMatRefs = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
-  const orbGroupRefs = useRef<(THREE.Group | null)[]>([]);
-  const orbMatRefs = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
-  const newStarMat = useRef<THREE.MeshStandardMaterial>(null);
-  const newStarGroup = useRef<THREE.Group>(null);
+  const time = useRef(0);
+  const groupRefs = useRef<(THREE.Group | null)[]>([]);
+  const matRefs = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
+  const edgeMat = useRef<THREE.LineBasicMaterial>(null);
+  const coreMat = useRef<THREE.MeshStandardMaterial>(null);
+  const coreGroup = useRef<THREE.Group>(null);
+  const shockRef = useRef<THREE.Mesh>(null);
+  const shockMat = useRef<THREE.MeshBasicMaterial>(null);
+  const shockT = useRef(-1); // -1 空闲；0..1 播放中
+  const firedRef = useRef(false);
 
   const selRef = useRef<string | null>(selectedId);
   selRef.current = selectedId;
@@ -170,84 +325,84 @@ function Scene({ scenario, onSelect, selectedId }: SceneProps) {
   const flyDoneRef = useRef(false);
   const [flyDone, setFlyDone] = useState(false);
 
-  const anchor = useMemo(() => new THREE.Vector3(), []);
-  const camClose = useMemo(() => new THREE.Vector3(0, 8, 42), []);
+  const camClose = useMemo(() => new THREE.Vector3(0, 9, 44), []);
 
-  // 初始化/同步布朗运动状态（节点数量变化时重置）
   useEffect(() => {
-    joff.current = orbiters.map((o) => o.homeOffset.clone());
-    jvel.current = orbiters.map(() => new THREE.Vector3());
-  }, [orbiters]);
+    flyDoneRef.current = false;
+    setFlyDone(false);
+  }, [active]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
-    combineT.current += ((active ? 1 : 0) - combineT.current) * 0.05;
+    time.current += dt;
+    const t = time.current;
+    combineT.current += ((active ? 1 : 0) - combineT.current) * 0.045;
     const ct = combineT.current;
+    const e = smoothstep(ct);
 
-    systems.forEach((sys, ci) => {
-      const g = starGroupRefs.current[ci];
-      if (g) {
-        g.position.copy(sys.center).multiplyScalar(1 + ct * 1.8);
-        g.scale.setScalar(selRef.current === `s${ci}` ? 1.16 : 1); // mesh 已含基础 3.2，group 仅承担选中倍率
-      }
-      const m = starMatRefs.current[ci];
-      if (m) {
-        m.opacity = 1 - ct * 0.9;
-        m.emissiveIntensity = (selRef.current === `s${ci}` ? 3.4 : 2.2) * (1 - ct) + 0.2;
-      }
-    });
-
-    orbiters.forEach((o, i) => {
-      const joffV = joff.current[i];
-      const jvelV = jvel.current[i];
-      if (!joffV || !jvelV) return;
-      // 布朗随机游走
-      jvelV.x += (Math.random() - 0.5) * ACCEL;
-      jvelV.y += (Math.random() - 0.5) * ACCEL;
-      jvelV.z += (Math.random() - 0.5) * ACCEL;
-      jvelV.multiplyScalar(DAMP);
-      if (jvelV.lengthSq() > MAXV * MAXV) jvelV.setLength(MAXV);
-      joffV.addScaledVector(jvelV, dt);
-
-      const ext = recombine.extracted[i];
-      let cloudR: number;
-      if (active && ext) {
-        anchor.lerpVectors(systems[o.ci].center, recombine.targets[i], ct);
-        cloudR = THREE.MathUtils.lerp(CLOUD, 3, ct);
-      } else if (active) {
-        anchor.copy(systems[o.ci].center).multiplyScalar(1 + ct * 1.8);
-        cloudR = CLOUD;
+    nodes.forEach((n, i) => {
+      const g = groupRefs.current[i];
+      if (!g) return;
+      const ox = driftAxis(n.dx, t);
+      const oy = driftAxis(n.dy, t) * 0.6;
+      const oz = driftAxis(n.dz, t);
+      const path = recombine.isPath[i];
+      if (active && path) {
+        const tg = recombine.targets[i];
+        const damp = 1 - ct * 0.75;
+        g.position.set(
+          n.home.x + (tg.x - n.home.x) * e + ox * damp,
+          n.home.y + (tg.y - n.home.y) * e + oy * damp,
+          n.home.z + (tg.z - n.home.z) * e + oz * damp
+        );
       } else {
-        anchor.copy(systems[o.ci].center);
-        cloudR = CLOUD;
+        g.position.set(n.home.x + ox, n.home.y + oy, n.home.z + oz);
       }
-      if (joffV.lengthSq() > cloudR * cloudR) {
-        joffV.setLength(cloudR);
-        jvelV.multiplyScalar(0.4);
-      }
+      const sel = selRef.current === n.id;
+      const hov = hovRef.current === n.id;
+      g.scale.setScalar(sel ? 1.9 : hov ? 1.35 : 1);
 
-      const g = orbGroupRefs.current[i];
-      if (g) {
-        g.position.copy(anchor).add(joffV);
-        const sel = selRef.current === o.id;
-        const hov = hovRef.current === o.id;
-        g.scale.setScalar(sel ? 1.7 : hov ? 1.3 : 1); // mesh 已含基础 o.radius，group 仅承担选中/悬停倍率
-      }
-      const mat = orbMatRefs.current[i];
+      const mat = matRefs.current[i];
       if (mat) {
-        mat.opacity = active && !ext ? 1 - ct * 0.9 : 1;
-        const sel = selRef.current === o.id;
-        mat.emissiveIntensity = (ext ? 2 : 1.4) + (sel ? 1.6 : 0) + (ext ? ct : 0);
+        mat.opacity = active && !path ? 1 - ct * 0.74 : 1;
+        const shimmer = path && active ? Math.sin(t * 4 + i) * 0.5 : 0;
+        mat.emissiveIntensity = (path && active ? 2.2 : 1.3) + shimmer + (sel ? 1.8 : 0);
       }
     });
 
-    if (newStarMat.current) {
-      newStarMat.current.opacity = ct;
-      newStarMat.current.emissiveIntensity = ct * 3.2;
-    }
-    if (newStarGroup.current) newStarGroup.current.visible = ct > 0.02;
+    // 连线：能量脉冲流动感
+    if (edgeMat.current) edgeMat.current.opacity = ct * (0.42 + 0.26 * (0.5 + 0.5 * Math.sin(t * 3)));
 
-    // 重组时镜头飞向中心；到位后交还 OrbitControls，让用户继续环视/点击
+    // 中心核：点火（末段急亮）+ 呼吸
+    const ignite = smoothstep(Math.max(0, ct - 0.7) / 0.3);
+    if (coreMat.current) {
+      coreMat.current.opacity = ct * 0.92;
+      coreMat.current.emissiveIntensity = ct * 2.4 + ignite * 4.5;
+    }
+    if (coreGroup.current) {
+      coreGroup.current.visible = ct > 0.02;
+      coreGroup.current.scale.setScalar(1 + ignite * 0.28 + Math.sin(t * 2) * 0.03 * ct);
+    }
+
+    // 汇聚完成时的一次性冲击波
+    if (active && !firedRef.current && ct > 0.72) {
+      firedRef.current = true;
+      shockT.current = 0;
+    }
+    if (!active) {
+      firedRef.current = false;
+      shockT.current = -1;
+    }
+    if (shockT.current >= 0 && shockT.current < 1) {
+      shockT.current = Math.min(1, shockT.current + dt * 0.7);
+      const s = shockT.current;
+      if (shockRef.current) shockRef.current.scale.setScalar(2 + s * 28);
+      if (shockMat.current) shockMat.current.opacity = (1 - s) * 0.5;
+    } else if (shockMat.current) {
+      shockMat.current.opacity = 0;
+    }
+
+    // 镜头：激活时飞入框住中心路径，到位后交还控制
     if (active) {
       if (!flyDoneRef.current) {
         camera.position.lerp(camClose, 0.04);
@@ -257,101 +412,89 @@ function Scene({ scenario, onSelect, selectedId }: SceneProps) {
           setFlyDone(true);
         }
       }
-    } else if (flyDoneRef.current) {
-      flyDoneRef.current = false;
-      setFlyDone(false);
     }
   });
 
-  const pickStar = (sys: SystemDef) =>
-    onSelect({ id: `s${sys.ci}`, kind: "star", type: sys.type, label: sys.name, color: sys.color, importance: 0.95, systemName: sys.name });
-
-  const pickNode = (o: OrbiterDef, label: string) =>
-    onSelect({ id: o.id, kind: "node", type: o.type, label, color: o.color, importance: o.importance, systemName: CATS[o.ci].name, isCondition: o.isCondition });
+  const pickNode = (n: GNode, label: string) =>
+    onSelect({ id: n.id, kind: "node", type: n.type, label, color: n.color, importance: n.importance, systemName: "银河", isCondition: n.isCondition });
 
   return (
     <>
-      <color attach="background" args={["#04060e"]} />
-      <fog attach="fog" args={["#04060e", 60, 260]} />
-      <ambientLight intensity={0.55} />
-      <pointLight position={[60, 50, 60]} intensity={1.1} color="#ffffff" />
-      <Stars radius={200} depth={120} count={5000} factor={5} saturation={0.4} fade speed={0.3} />
+      <color attach="background" args={["#03040a"]} />
+      <fog attach="fog" args={["#040510", 90, 360]} />
+      <DeepSpace />
+      <ambientLight intensity={0.5} />
+      <pointLight position={[40, 60, 60]} intensity={1.0} color="#cfe0ff" />
+      <pointLight position={[-50, -30, -40]} intensity={0.5} color="#ffd9c0" />
+      <Nebula />
+      <Stars radius={520} depth={60} count={4000} factor={3} saturation={0} fade speed={0.08} />
+      <Stars radius={260} depth={140} count={8000} factor={5} saturation={0.5} fade speed={0.22} />
+      <Sparkles count={180} scale={[180, 56, 180]} size={2.2} speed={0.2} opacity={0.5} color="#aac4ff" />
+      <GalacticCore />
 
-      {systems.map((sys, ci) => (
-        <group key={sys.ci} ref={(el) => { starGroupRefs.current[ci] = el; }} position={sys.center}>
+      {nodes.map((n, i) => (
+        <group key={n.id} ref={(el) => { groupRefs.current[i] = el; }}>
           <mesh
-            scale={3.2}
-            onClick={(e) => { e.stopPropagation(); pickStar(sys); }}
-            onPointerOver={(e) => { e.stopPropagation(); hovRef.current = `s${ci}`; document.body.style.cursor = "pointer"; }}
-            onPointerOut={() => { if (hovRef.current === `s${ci}`) hovRef.current = null; document.body.style.cursor = "auto"; }}
+            scale={n.radius}
+            onClick={(ev) => { ev.stopPropagation(); pickNode(n, recombine.labels[i]); }}
+            onPointerOver={(ev) => { ev.stopPropagation(); hovRef.current = n.id; document.body.style.cursor = "pointer"; }}
+            onPointerOut={() => { if (hovRef.current === n.id) hovRef.current = null; document.body.style.cursor = "auto"; }}
           >
-            <sphereGeometry args={[1, 22, 22]} />
+            <sphereGeometry args={[1, 14, 14]} />
             <meshStandardMaterial
-              ref={(el) => { starMatRefs.current[ci] = el; }}
-              color={sys.color}
-              emissive={sys.color}
-              emissiveIntensity={2.2}
-              roughness={0.3}
+              ref={(el) => { matRefs.current[i] = el; }}
+              color={n.color}
+              emissive={n.color}
+              emissiveIntensity={1.3}
+              roughness={0.4}
               metalness={0.1}
               transparent
               toneMapped={false}
             />
           </mesh>
-          <Html center position={[0, 5, 0]} distanceFactor={26} style={{ pointerEvents: "none" }}>
-            <div style={{ ...starLabelStyle, color: sys.color, border: `1px solid ${sys.color}55`, opacity: active ? 0.25 : 1 }}>{sys.name}</div>
-          </Html>
-        </group>
-      ))}
-
-      {orbiters.map((o, i) => (
-        <group key={o.id} ref={(el) => { orbGroupRefs.current[i] = el; }}>
-          <mesh
-            scale={o.radius}
-            onClick={(e) => { e.stopPropagation(); pickNode(o, recombine.labels[i]); }}
-            onPointerOver={(e) => { e.stopPropagation(); hovRef.current = o.id; document.body.style.cursor = "pointer"; }}
-            onPointerOut={() => { if (hovRef.current === o.id) hovRef.current = null; document.body.style.cursor = "auto"; }}
-          >
-            <sphereGeometry args={[1, 16, 16]} />
-            <meshStandardMaterial
-              ref={(el) => { orbMatRefs.current[i] = el; }}
-              color={o.color}
-              emissive={o.color}
-              emissiveIntensity={1.4}
-              roughness={0.35}
-              metalness={0.1}
-              transparent
-              toneMapped={false}
-            />
-          </mesh>
-          {o.isCondition && (
-            <mesh scale={o.radius * 1.7}>
-              <ringGeometry args={[0.9, 1, 28]} />
-              <meshBasicMaterial color="#ffffff" transparent opacity={0.6} side={THREE.DoubleSide} toneMapped={false} />
+          {n.isCondition && (
+            <mesh scale={n.radius * 1.7}>
+              <ringGeometry args={[0.9, 1, 26]} />
+              <meshBasicMaterial color="#ffffff" transparent opacity={0.55} side={THREE.DoubleSide} toneMapped={false} />
             </mesh>
           )}
-          {((recombine.extracted[i] && active) || selectedId === o.id) && (
-            <Html center position={[0, o.radius + 0.9, 0]} distanceFactor={16} style={{ pointerEvents: "none" }}>
-              <div style={selectedId === o.id ? { ...labelStyle, borderColor: o.color } : labelStyle}>{recombine.labels[i]}</div>
+          {selectedId === n.id && (
+            <Html center position={[0, n.radius + 1.1, 0]} distanceFactor={15} style={{ pointerEvents: "none" }}>
+              <div style={{ ...labelStyle, borderColor: n.color }}>{recombine.labels[i]}</div>
             </Html>
           )}
         </group>
       ))}
 
-      <group ref={newStarGroup} visible={false}>
-        <mesh scale={3.6}>
-          <sphereGeometry args={[1, 22, 22]} />
-          <meshStandardMaterial ref={newStarMat} color="#fff7e0" emissive="#f5d97a" emissiveIntensity={0} roughness={0.25} metalness={0.1} transparent opacity={0} toneMapped={false} />
+      {/* 决策路径连线 */}
+      <lineSegments geometry={edgeGeo}>
+        <lineBasicMaterial ref={edgeMat} color="#9fb4ff" transparent opacity={0} toneMapped={false} depthWrite={false} />
+      </lineSegments>
+
+      {/* 中心综合核 */}
+      <group ref={coreGroup} visible={false}>
+        <mesh scale={3.2}>
+          <sphereGeometry args={[1, 24, 24]} />
+          <meshStandardMaterial ref={coreMat} color="#fff3d6" emissive="#ffd98a" emissiveIntensity={0} roughness={0.25} metalness={0.1} transparent opacity={0} toneMapped={false} />
         </mesh>
         {active && (
-          <Html center position={[0, 5.2, 0]} distanceFactor={22} style={{ pointerEvents: "none" }}>
-            <div style={{ ...starLabelStyle, color: "#fde68a", border: "1px solid rgba(245,217,122,.4)" }}>{scenario?.topic || "决策路径"}</div>
+          <Html center position={[0, 5, 0]} distanceFactor={20} style={{ pointerEvents: "none" }}>
+            <div style={coreLabelStyle}>{scenario?.topic || "决策路径"}</div>
           </Html>
         )}
       </group>
 
-      <OrbitControls enabled={!active || flyDone} enableDamping dampingFactor={0.08} autoRotate={!active} autoRotateSpeed={0.25} minDistance={10} maxDistance={320} enablePan={false} />
+      {/* 汇聚完成冲击波（横躺银河盘平面，向外扩散淡出） */}
+      <mesh ref={shockRef} rotation={[-Math.PI / 2, 0, 0]} scale={0}>
+        <ringGeometry args={[0.92, 1, 80]} />
+        <meshBasicMaterial ref={shockMat} color="#bcd4ff" transparent opacity={0} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} />
+      </mesh>
+
+      <OrbitControls enabled={!active || flyDone} enableDamping dampingFactor={0.08} autoRotate={!active} autoRotateSpeed={0.12} minDistance={12} maxDistance={400} enablePan={false} />
       <EffectComposer>
-        <Bloom intensity={1} luminanceThreshold={0.16} luminanceSmoothing={0.9} mipmapBlur radius={0.6} />
+        <Bloom intensity={1.15} luminanceThreshold={0.14} luminanceSmoothing={0.9} mipmapBlur radius={0.72} />
+        <Vignette offset={0.28} darkness={0.82} />
+        <Noise opacity={0.035} />
       </EffectComposer>
     </>
   );
@@ -363,18 +506,20 @@ const labelStyle: CSSProperties = {
   color: "#e6e9f4",
   padding: "2px 8px",
   borderRadius: 8,
-  background: "rgba(8,10,20,.66)",
+  background: "rgba(8,10,20,.72)",
   borderWidth: 1,
   borderStyle: "solid",
-  borderColor: "rgba(255,255,255,.14)"
+  borderColor: "rgba(255,255,255,.16)"
 };
-const starLabelStyle: CSSProperties = {
+const coreLabelStyle: CSSProperties = {
   whiteSpace: "nowrap",
   fontSize: 14,
   fontWeight: 600,
+  color: "#fde68a",
   padding: "3px 12px",
   borderRadius: 10,
-  background: "rgba(8,10,20,.7)"
+  background: "rgba(8,10,20,.7)",
+  border: "1px solid rgba(245,217,122,.4)"
 };
 
 type Props = {
@@ -388,7 +533,7 @@ export default function StarSystems3D({ onSelect, selectedId }: Props) {
     <Canvas
       className="absolute inset-0"
       dpr={[1, 2]}
-      camera={{ position: [0, 16, 118], fov: 55, near: 0.1, far: 1000 }}
+      camera={{ position: [0, 48, 122], fov: 55, near: 0.1, far: 1400 }}
       gl={{ antialias: true }}
       onPointerMissed={() => onSelect(null)}
     >

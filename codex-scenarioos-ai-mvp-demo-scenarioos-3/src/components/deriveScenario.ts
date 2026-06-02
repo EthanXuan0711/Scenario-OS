@@ -89,6 +89,13 @@ export function matchArchetypeKey(input: string): string {
   return archetypeOf(input).id;
 }
 
+// 公共原型详情（供推演规则引擎使用，避免泄露内部 Archetype 类型）
+export type ArchetypeDetail = { id: string; org: string; persons: string[]; values: string[]; risks: string[] };
+export function archetypeDetail(input: string): ArchetypeDetail {
+  const a = archetypeOf(input);
+  return { id: a.id, org: a.org, persons: [...a.persons], values: [...a.values], risks: [...a.risks] };
+}
+
 // 局部图谱：中心 + 周围节点覆盖
 export function deriveScenarioOverrides(input: string, centerLabel: string): Record<string, ScenarioOverride> {
   const archetype = archetypeOf(input);

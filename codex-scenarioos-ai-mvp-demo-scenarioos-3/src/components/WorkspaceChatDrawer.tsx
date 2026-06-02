@@ -46,12 +46,12 @@ export default function WorkspaceChatDrawer({ messages, onSend, side = "right" }
 
       {/* 抽屉本体 */}
       <div
-        className={`fixed top-0 z-50 flex h-full w-[360px] max-w-[88vw] flex-col border-zinc-800 bg-[#08080f] shadow-2xl transition-transform duration-300 ${
+        className={`fixed top-11 z-50 flex h-[calc(100dvh-2.75rem)] max-h-[calc(100dvh-2.75rem)] min-h-0 w-[360px] max-w-[88vw] flex-col border-zinc-800 bg-[#08080f] shadow-2xl transition-transform duration-300 ${
           isLeft ? "left-0 border-r" : "right-0 border-l"
         } ${open ? "translate-x-0" : isLeft ? "-translate-x-full" : "translate-x-full"}`}
         aria-hidden={!open}
       >
-        <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 px-4 py-3">
           <MessageSquarePlus size={15} className="text-amber-400" />
           <span className="text-sm font-medium text-zinc-100">AI 推演助手</span>
           <span className="ml-auto text-[11px] text-zinc-600">输入联动图谱</span>
@@ -60,7 +60,7 @@ export default function WorkspaceChatDrawer({ messages, onSend, side = "right" }
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {messages.map((message, index) =>
             message.role === "user" ? (
               <div key={index} className="flex justify-end">
@@ -77,7 +77,7 @@ export default function WorkspaceChatDrawer({ messages, onSend, side = "right" }
           )}
         </div>
 
-        <div className="border-t border-zinc-800 p-3">
+        <div className="shrink-0 border-t border-zinc-800 p-3">
           <div className="flex items-end gap-2 rounded-xl border border-zinc-700 bg-[#0c0c16] px-3 py-2 transition-colors focus-within:border-amber-500/40">
             <textarea
               value={input}

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import "@xyflow/react/dist/style.css";
+import CosmicNav from "../components/CosmicNav";
 
 export const metadata: Metadata = {
   title: "ScenarioOS | 个人决策大脑",
@@ -11,7 +12,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        <CosmicNav />
+        {children}
+      </body>
     </html>
   );
 }

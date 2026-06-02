@@ -34,7 +34,7 @@ export default function SandboxNodeCard({ node, variables, topic, onClose }: Pro
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
           exit={{ opacity: 0, y: 16, filter: "blur(6px)" }}
           transition={{ duration: 0.28, ease: "easeOut" }}
-          className="pointer-events-auto absolute bottom-24 left-6 z-30 w-[340px] max-w-[calc(100vw-3rem)]"
+          className="pointer-events-auto absolute bottom-24 left-6 z-30 max-h-[calc(100dvh-8rem)] w-[340px] max-w-[calc(100vw-3rem)] overflow-y-auto"
         >
           <div className="rounded-[20px] p-5" style={glassStyle}>
             <CardBody node={node} variables={variables} topic={topic} onClose={onClose} />
@@ -57,7 +57,7 @@ function CardBody({ node, variables, topic, onClose }: { node: SandboxNode; vari
     <>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ background: meta.color, boxShadow: `0 0 12px ${meta.glow}` }} />
+          <span className="inline-flex h-2.5 w-2.5 rounded-full" style={{ background: node.color, boxShadow: `0 0 12px ${node.color}` }} />
           <span className="text-xs tracking-wide text-zinc-400">
             {node.kind === "star" ? `${meta.label} 恒星系` : meta.label}
             {node.isCondition ? " · 新增条件" : ""}
@@ -72,7 +72,7 @@ function CardBody({ node, variables, topic, onClose }: { node: SandboxNode; vari
       <p className="mb-4 text-[13px] leading-relaxed text-zinc-400">{description}</p>
 
       <div className="mb-2 grid grid-cols-2 gap-3">
-        <Metric label={scoreLabel(node.type)} value={score} color={meta.color} />
+        <Metric label={scoreLabel(node.type)} value={score} color={node.color} />
         <Metric label="权重" value={weight} color="#9ec2ff" />
       </div>
 
@@ -84,7 +84,7 @@ function CardBody({ node, variables, topic, onClose }: { node: SandboxNode; vari
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/5">
           <motion.div
             className="h-full rounded-full"
-            style={{ background: meta.color }}
+            style={{ background: node.color }}
             initial={{ width: 0 }}
             animate={{ width: `${relValue ?? 50}%` }}
             transition={{ duration: 0.5, ease: "easeOut" }}

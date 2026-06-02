@@ -1,11 +1,6 @@
-import type { Metadata } from "next";
-import Cockpit from "../../components/cockpit/Cockpit";
-
-export const metadata: Metadata = {
-  title: "ScenarioOS · 决策推演驾驶舱 | Cockpit",
-  description: "左 AI 聊天 + 中 3D 星系 + 右数据 的一体化决策推演驾驶舱"
-};
+// 信息架构收敛：驾驶舱能力并入「推演」，旧路由重定向，避免三页面职责重叠。
+import { redirect } from "next/navigation";
 
 export default function CockpitPage() {
-  return <Cockpit />;
+  redirect("/scenario-map");
 }

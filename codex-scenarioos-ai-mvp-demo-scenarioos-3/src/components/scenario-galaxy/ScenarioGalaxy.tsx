@@ -1,20 +1,24 @@
 "use client";
 
-// 社会沙盘页：5 维度恒星系（布朗运动）→ 决策路径星系。
-// 点击星球 → 详情卡（评分/权重/内容，随变量实时同步）；新增条件 → 生成新星球；与工作台共享同一份场景。
+// 社会沙盘页：银河（均匀打散 + 平滑漂移）→ 决策路径。
+// 默认元素独立漂移；输入决策 → 相关元素飞出汇聚成一条带连线的路径。
+// 点击星球 → 详情卡（评分/权重/内容，随变量同步）；新增条件 → 生成新星球；与工作台共享场景。
 
 import { useEffect, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import { addCondition, loadScenario, removeCondition, saveScenario, useSharedScenario } from "../scenarioBridge";
 import { matchArchetypeKey } from "../deriveScenario";
 import { classifyType } from "../cockpit/cockpitSim";
+import { runDeduction, saveDeduction, type DeductionResult } from "../deduction";
 import { NODE_TYPE_META } from "./galaxyTypes";
 import SandboxNodeCard from "./SandboxNodeCard";
+import DeductionTheater from "./DeductionTheater";
+import DeductionResultPanel from "./DeductionResult";
 import type { SandboxNode } from "./sandboxScoring";
 
 const StarSystems3D = dynamic(() => import("./StarSystems3D"), {
   ssr: false,
-  loading: () => <div className="absolute inset-0 flex items-center justify-center text-xs text-zinc-600">正在初始化恒星系…</div>
+  loading: () => <div className="absolute inset-0 flex items-center justify-center text-xs text-zinc-600">正在初始化银河…</div>
 });
 
 export default function ScenarioGalaxy() {
@@ -24,6 +28,9 @@ export default function ScenarioGalaxy() {
   const [active, setActive] = useState(false);
   const [selected, setSelected] = useState<SandboxNode | null>(null);
   const [conditionInput, setConditionInput] = useState("");
+  const [condCollapsed, setCondCollapsed] = useState(false);
+  const [theater, setTheater] = useState(false);
+  const [deductionResult, setDeductionResult] = useState<DeductionResult | null>(null);
 
   useEffect(() => {
     const shared = loadScenario();
@@ -50,6 +57,19 @@ export default function ScenarioGalaxy() {
     setActive(true);
     setTopic(tp);
     setInput("");
+    setTheater(true);
+    // 跑推演 → 写历史 → 展示结果面板（后端就绪后 runDeduction 自动改走 /api/deduce）
+    runDeduction({
+      text: trimmed,
+      topic: tp,
+      variables: current?.variables ?? null,
+      conditions: (current?.conditions ?? []).map((c) => c.label)
+    })
+      .then((result) => {
+        saveDeduction(result);
+        setDeductionResult(result);
+      })
+      .catch(() => {});
   };
 
   const restore = () => {
@@ -71,11 +91,13 @@ export default function ScenarioGalaxy() {
   const conditions = scenario?.conditions ?? [];
 
   return (
-    <div className="relative h-screen w-full select-none overflow-hidden bg-[#04060e] font-sans text-zinc-200">
+    <div className="relative mt-11 h-[calc(100dvh-2.75rem)] min-h-[640px] w-full select-none overflow-hidden bg-[#04050c] font-sans text-zinc-200">
       <StarSystems3D onSelect={setSelected} selectedId={selected?.id ?? null} />
 
+      <DeductionTheater playing={theater} topic={topic} onDone={() => setTheater(false)} />
+
       {/* 标题 */}
-      <div className="pointer-events-none absolute left-6 top-5 z-20">
+      <div className="pointer-events-none absolute left-6 top-14 z-20">
         <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
           <span className="relative flex h-2.5 w-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400/70" />
@@ -84,54 +106,56 @@ export default function ScenarioGalaxy() {
           ScenarioOS · 社会沙盘
         </div>
         <div className="mt-1.5 max-w-[70vw] pl-5 font-mono text-[11px] text-zinc-500">
-          {active ? `决策路径星系：「${topic}」 · 点击节点查看评分/权重` : "5 维度恒星系（布朗运动）· 点击星球进入详情 / 输入决策重组"}
+          {active ? `决策路径：「${topic}」 · 点击节点看评分/权重` : "银河 · 元素独立漂移 · 点击星球看详情 / 输入决策汇聚成路径"}
         </div>
       </div>
 
-      {/* 条件面板 */}
-      <div className="absolute left-6 top-[72px] z-20 w-[248px] max-w-[calc(100vw-3rem)] rounded-2xl border border-white/10 p-3 backdrop-blur-md" style={{ background: "rgba(10,12,24,0.6)" }}>
-        <div className="mb-2 flex items-center justify-between text-[11px] text-zinc-400">
+      {/* 条件面板（可折叠） */}
+      <div className="absolute left-6 top-[120px] z-20 w-[248px] max-w-[calc(100vw-3rem)] rounded-2xl border border-white/10 p-3 backdrop-blur-md" style={{ background: "rgba(10,12,24,0.6)" }}>
+        <button type="button" onClick={() => setCondCollapsed((v) => !v)} className="flex w-full items-center justify-between text-[11px] text-zinc-400 transition-colors hover:text-zinc-200">
           <span>条件 · 新增即生成星球</span>
-          <span className="font-mono text-zinc-600">{conditions.length}</span>
-        </div>
-        {conditions.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {conditions.map((c) => {
-              const meta = NODE_TYPE_META[c.type as keyof typeof NODE_TYPE_META] ?? NODE_TYPE_META.event;
-              return (
-                <span key={c.id} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: `${meta.color}55`, color: meta.color, background: `${meta.color}12` }}>
-                  {c.label}
-                  <button type="button" onClick={() => removeCondition(c.id)} className="text-zinc-500 hover:text-zinc-200" aria-label="移除条件">
-                    ✕
-                  </button>
-                </span>
-              );
-            })}
+          <span className="flex items-center gap-2">
+            <span className="font-mono text-zinc-600">{conditions.length}</span>
+            <span className={`inline-block transition-transform duration-200 ${condCollapsed ? "" : "rotate-90"}`}>▸</span>
+          </span>
+        </button>
+        {!condCollapsed && (
+          <div className="mt-2.5">
+            {conditions.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {conditions.map((c) => {
+                  const meta = NODE_TYPE_META[c.type as keyof typeof NODE_TYPE_META] ?? NODE_TYPE_META.event;
+                  return (
+                    <span key={c.id} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]" style={{ borderColor: `${meta.color}55`, color: meta.color, background: `${meta.color}12` }}>
+                      {c.label}
+                      <button type="button" onClick={() => removeCondition(c.id)} className="text-zinc-500 hover:text-zinc-200" aria-label="移除条件">
+                        ✕
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+            <form onSubmit={addCond} className="flex items-center gap-1.5">
+              <input
+                value={conditionInput}
+                onChange={(event) => setConditionInput(event.target.value)}
+                placeholder="新增一个条件…"
+                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+              />
+              <button type="submit" className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-300 transition-colors hover:border-amber-400/50 hover:text-amber-200">
+                ＋
+              </button>
+            </form>
           </div>
         )}
-        <form onSubmit={addCond} className="flex items-center gap-1.5">
-          <input
-            value={conditionInput}
-            onChange={(event) => setConditionInput(event.target.value)}
-            placeholder="新增一个条件…"
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
-          />
-          <button type="submit" className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-300 transition-colors hover:border-amber-400/50 hover:text-amber-200">
-            ＋
-          </button>
-        </form>
       </div>
-
-      <a
-        href="/"
-        className="absolute right-6 top-5 z-20 rounded-full border border-white/10 px-4 py-2 text-xs text-zinc-400 backdrop-blur-md transition-colors hover:border-amber-400/50 hover:text-amber-200"
-        style={{ background: "rgba(10,12,24,0.55)" }}
-      >
-        ← 返回工作台
-      </a>
 
       {/* 节点详情卡 */}
       <SandboxNodeCard node={selected} variables={scenario?.variables ?? null} topic={scenario?.topic ?? topic} onClose={() => setSelected(null)} />
+
+      {/* 推演结果面板 */}
+      <DeductionResultPanel result={deductionResult} onClose={() => setDeductionResult(null)} />
 
       {/* 推演输入 */}
       <form
@@ -142,7 +166,7 @@ export default function ScenarioGalaxy() {
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="输入你的决策 / 担忧，从 5 维度抽取人生节点重组为决策路径星系…"
+          placeholder="输入你的决策 / 担忧，相关元素将飞出汇聚成一条决策路径…"
           className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
         />
         <button type="submit" className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-medium text-zinc-950 transition-colors hover:bg-amber-400">

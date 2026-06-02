@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import Link from "next/link";
 import {
   Activity,
   BookOpen,
@@ -13,10 +12,11 @@ import {
   Folder,
   GitBranch,
   Hash,
+  LayoutGrid,
   Link2,
   ListChecks,
   MessageSquarePlus,
-  Orbit,
+  Network,
   PanelLeftClose,
   PanelRightClose,
   Pin,
@@ -26,7 +26,8 @@ import {
   Scale,
   Search,
   ShieldAlert,
-  Terminal
+  Terminal,
+  type LucideIcon
 } from "lucide-react";
 import {
   actionProtocol,
@@ -62,10 +63,10 @@ const rightTabs: Array<{ id: RightTab; label: string }> = [
   { id: "council", label: "反方" }
 ];
 
-const workspaceModes: Array<{ id: WorkspaceMode; label: string }> = [
-  { id: "graph", label: "局部图谱" },
-  { id: "note", label: "Markdown" },
-  { id: "canvas", label: "Canvas" }
+const workspaceModes: Array<{ id: WorkspaceMode; label: string; Icon: LucideIcon }> = [
+  { id: "graph", label: "局部图谱", Icon: Network },
+  { id: "note", label: "Markdown", Icon: FileText },
+  { id: "canvas", label: "Canvas", Icon: LayoutGrid }
 ];
 
 const variableDefaults = baseVariables.reduce((accumulator, variable) => {
@@ -306,9 +307,19 @@ export default function ScenarioWorkspace() {
     [variables]
   );
 
-  // 写入共享场景：议题 + 推演原型 + 变量 → 供社会沙盘联动。
+  // 工作台始终把变量(+议题)同步到共享桥接 → 推演/档案实时联动；
+  // 保留另一页可能设置的场景与条件，避免互相覆盖。
   useEffect(() => {
-    if (scenarioMeta.active) saveScenario({ ...scenarioMeta, variables });
+    const current = loadScenario();
+    const base = scenarioMeta.active
+      ? { active: true, topic: scenarioMeta.topic, input: scenarioMeta.input, archetypeKey: scenarioMeta.archetypeKey }
+      : {
+          active: current?.active ?? false,
+          topic: current?.topic ?? "",
+          input: current?.input ?? "",
+          archetypeKey: current?.archetypeKey ?? "generic"
+        };
+    saveScenario({ ...base, variables, conditions: current?.conditions ?? [] });
   }, [scenarioMeta, variables]);
 
   // 挂载时从共享场景恢复，保持工作台与社会沙盘一致。
@@ -513,13 +524,13 @@ export default function ScenarioWorkspace() {
   };
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-[#030308] text-sm text-zinc-400 lg:flex-row">
+    <div className="mt-11 flex min-h-[calc(100dvh-2.75rem)] w-full flex-col overflow-x-hidden bg-[#030308] text-sm text-zinc-400 lg:h-[calc(100dvh-2.75rem)] lg:min-h-0 lg:flex-row lg:overflow-hidden">
       {leftCollapsed ? (
         <RailBar side="left" title="Vault" onExpand={() => setLeftCollapsed(false)} />
       ) : (
       <section
         data-testid="vault-sidebar"
-        className="flex h-[34vh] w-full min-w-0 flex-col border-b border-zinc-800/60 bg-[#07070e] lg:h-auto lg:w-[21rem] lg:min-w-[19rem] lg:border-b-0 lg:border-r"
+          className="flex w-full min-w-0 shrink-0 flex-col border-b border-zinc-800/60 bg-[#07070e] lg:h-auto lg:w-[21rem] lg:min-w-[19rem] lg:border-b-0 lg:border-r"
       >
         <header className="border-b border-zinc-900 px-4 py-3">
           <div className="mb-3 flex items-center justify-between">
@@ -550,7 +561,7 @@ export default function ScenarioWorkspace() {
           </label>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-3 py-4">
+        <div className="min-h-0 px-3 py-4 lg:flex-1 lg:overflow-y-auto">
           <section className="mb-4 space-y-3 border border-zinc-900 bg-zinc-950/60 p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
@@ -666,7 +677,7 @@ export default function ScenarioWorkspace() {
 
         <form
           data-testid="quick-capture"
-          className="space-y-3 border-t border-zinc-900 p-4"
+          className="shrink-0 space-y-3 border-t border-zinc-900 p-4"
           onSubmit={(event) => {
             event.preventDefault();
             submitCapture();
@@ -714,39 +725,34 @@ export default function ScenarioWorkspace() {
       </section>
       )}
 
-      <main className="flex min-h-0 flex-1 flex-col bg-[#040409]">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-900 px-4 py-3">
-          <div className="min-w-0">
-            <div className="mb-1 flex items-center gap-2 text-xs text-zinc-600">
-              <Terminal size={13} />
-              ScenarioOS Vault / {selectedNode.label}.md
+      <main className="flex min-h-[34rem] min-w-0 shrink-0 flex-col bg-[#040409] lg:min-h-0 lg:flex-1 lg:shrink">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-900 px-4 py-3">
+          <div className="min-w-0 max-w-[180px] overflow-hidden lg:max-w-[240px]">
+            <div className="mb-1 flex items-center gap-2 whitespace-nowrap text-xs text-zinc-600">
+              <Terminal size={13} className="shrink-0" />
+              <span className="truncate">ScenarioOS Vault / {selectedNode.label}.md</span>
             </div>
             <h1 className="truncate text-lg text-zinc-100">{selectedNode.label}</h1>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              <Link
-                href="/scenario-map"
-                className="flex shrink-0 items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-amber-200 transition-colors hover:border-amber-400/70 hover:bg-amber-500/20"
-              >
-                <Orbit size={14} />
-                社会沙盘
-              </Link>
-              <span className="mx-1 h-4 w-px shrink-0 bg-zinc-800" aria-hidden />
-              {workspaceModes.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => setWorkspaceMode(mode.id)}
-                  className={`shrink-0 border px-3 py-1.5 transition-colors ${
-                    workspaceMode === mode.id
-                      ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
-                      : "border-zinc-800 text-zinc-500 hover:text-zinc-200"
-                  }`}
-                >
-                  {mode.label}
-                </button>
-              ))}
+            <div className="flex shrink-0 items-center gap-0.5 rounded-xl border border-white/10 bg-black/25 p-0.5">
+              {workspaceModes.map((mode) => {
+                const active = workspaceMode === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setWorkspaceMode(mode.id)}
+                    title={mode.label}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs transition-all ${
+                      active ? "bg-amber-400 font-medium text-zinc-950 shadow-sm" : "text-zinc-400 hover:bg-white/5 hover:text-zinc-100"
+                    }`}
+                  >
+                    <mode.Icon size={13} />
+                    <span>{mode.label}</span>
+                  </button>
+                );
+              })}
             </div>
             <span className="mx-1 h-4 w-px shrink-0 bg-zinc-800" aria-hidden />
             <UserMenu />
@@ -943,7 +949,7 @@ links: ${relatedEdges.length}
           )}
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-zinc-900 px-4 py-2 text-xs text-zinc-600">
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-zinc-900 px-4 py-2 text-xs text-zinc-600">
           <span>{lastAction}</span>
           <span>第 {round} 轮 · {messages.length} 条记录</span>
         </footer>
@@ -952,7 +958,7 @@ links: ${relatedEdges.length}
       {rightCollapsed ? (
         <RailBar side="right" title="数据" onExpand={() => setRightCollapsed(false)} />
       ) : (
-      <aside className="flex h-[36vh] w-full min-w-0 flex-col border-t border-zinc-800/60 bg-[#07070e] lg:h-auto lg:w-[27rem] lg:min-w-[23rem] lg:border-l lg:border-t-0">
+      <aside className="flex w-full min-w-0 shrink-0 flex-col border-t border-zinc-800/60 bg-[#07070e] lg:h-auto lg:w-[27rem] lg:min-w-[23rem] lg:border-l lg:border-t-0">
         <div className="flex items-center overflow-x-auto border-b border-zinc-900 px-2 pt-2 text-xs font-medium">
           {rightTabs.map((tab) => (
             <button
@@ -976,7 +982,7 @@ links: ${relatedEdges.length}
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5">
+        <div className="min-h-0 px-5 lg:flex-1 lg:overflow-y-auto">
           {rightTab === "properties" && (
             <div data-testid="properties-panel" className="pb-8">
               <div className="panel-section">
